@@ -3,16 +3,16 @@
   "description": "Makes image thumbnails from images or bzipped images",
   "author": "Rein van t Veer <info@bureaudigitaalerfgoed.nl>",
   "dependencies": {
-    "imageMagick": "^0.1.2"
+    "imageMagick": "^0.1.2",
+    "path": "^0.11.14"
   },
   "devDependencies": {},
   "scripts": {
     "start": "node index.js"
   },
-    "repository":
-    {
-        "type": "git",
-        "url": "http://github.com/erfgoed-en-locatie/image-thumbnailer.git"
+  "repository": {
+    "type": "git",
+    "url": "http://github.com/erfgoed-en-locatie/image-thumbnailer.git"
   },
   "engine": "node >= 0.4.1"
 }
