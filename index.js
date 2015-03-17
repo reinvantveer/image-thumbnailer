@@ -5,7 +5,7 @@ Usage: node index.js -infiles '/images/image*.tiff.bzip' -outdir /thumbs -width 
 
 var argv = require('optimist')
     .usage('Create image thumbnails from .\nUsage: $0')
-    .demand(['infiles', 'outdir', 'compression', 'width', 'height'])
+    .demand(['infiles', 'outdir', 'width', 'height'])
     .argv,
     fs = require('fs'),
     path = require('path'),
@@ -15,7 +15,9 @@ var argv = require('optimist')
     async = require('async');
 
 var options,
+    tempFileName,
 	pictureFileName,
+    outFileName,
     compressedData,
     data;
 
@@ -24,36 +26,39 @@ options = {
 };
 
 var filelist = glob.sync(argv.infiles, options);
-console.log(filelist.length);
+console.log(filelist.length + ' files for processing');
 
-async.eachSeries(
+async.eachLimit(
+//async.eachSeries(
 	filelist,
+    20, //limit asynchronous processing to 20 files at the same time
 	function (file, callback) {
 		'use strict';
 		console.log(file);
-		
-		/*
 
-		if (file.name.substr(file.name.length - 4, file.name.length) === ".bzip") {
-			compressedData = fs.readFileSync(file.path);
-			data = Bunzip.decode(compressedData);
-			pictureFileName = file.name.substr(0, file.name.length - 4);
+        /*
+		if (file.substr(file.length - 4, file.length) === ".bzip") {
+			compressedData = fs.readFileSync(file);
+			data = bunzip.decode(compressedData);
+			tempFileName = '/tmp/' + file.substr(0, file.length - 4); //get rid of bzip extension
 			fs.writeFileSync(pictureFileName, data);
-		} else {
-			pictureFileName = file.name;
-		}
-		*/
+            pictureFileName = tempFileName;
 
-		var pictureFileName = String(file),
-            outfilename = pictureFileName.split('/');
-		outfilename = outfilename[outfilename.length - 1];
+		} else {
+
+			pictureFileName = String(file);
+		}
+        */
+        pictureFileName = String(file);
+        outFileName = pictureFileName.split('/');
+		outFileName = outFileName[outFileName.length - 1];
 		
-		gm(pictureFileName).resize(argv.width, argv.height).write(argv.outdir + '/' + outfilename, function (err) {
+		gm(pictureFileName).resize(argv.width, argv.height).write(argv.outdir + '/' + outFileName, function (err) {
 			if (err) {
 				console.log(err);
 				callback(err);
 			} else {
-				console.log('Wrote ' + argv.outdir + outfilename);
+				console.log('Wrote ' + argv.outdir + outFileName);
 				callback();
 			}
 		});
