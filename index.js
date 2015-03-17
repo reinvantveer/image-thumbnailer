@@ -20,14 +20,14 @@ var options,
     data;
 
 options = {
-			nocase: true
-		};
+    nocase: true
+};
 
 var filelist = glob.sync(argv.infiles, options);
 console.log(filelist.length);
 
 async.eachSeries(
-	filelist, 
+	filelist,
 	function (file, callback) {
 		'use strict';
 		console.log(file);
@@ -44,23 +44,24 @@ async.eachSeries(
 		}
 		*/
 
-		var pictureFileName = String(file);
-		var outfilename = pictureFileName.split('/');
+		var pictureFileName = String(file),
+            outfilename = pictureFileName.split('/');
 		outfilename = outfilename[outfilename.length - 1];
 		
 		gm(pictureFileName).resize(argv.width, argv.height).write(argv.outdir + '/' + outfilename, function (err) {
 			if (err) {
 				console.log(err);
-				callback(err); 
+				callback(err);
 			} else {
 				console.log('Wrote ' + argv.outdir + outfilename);
 				callback();
 			}
 		});
-	}, 
+	},
 	function (err) {
+        'use strict';
 		if (err) {
-			fs.appendFileSync('errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + error + "\n");
+			fs.appendFileSync('errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
 		}
 	}
 );
