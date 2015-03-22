@@ -16,9 +16,10 @@ var argv = require('optimist')
 
 var options,
     tempFileName,
-	pictureFileName,
+    pictureFileName,
     outFileName,
     compressedData,
+    stats,
     data;
 
 options = {
@@ -29,44 +30,56 @@ var filelist = glob.sync(argv.infiles, options);
 console.log(filelist.length + ' files for processing');
 
 async.eachLimit(
-//async.eachSeries(
-	filelist,
+    filelist,
     20, //limit asynchronous processing to 20 files at the same time
-	function (file, callback) {
-		'use strict';
-		console.log(file);
+    function (file, callback) {
+        'use strict';
+        console.log(file);
 
         /*
-		if (file.substr(file.length - 4, file.length) === ".bzip") {
-			compressedData = fs.readFileSync(file);
-			data = bunzip.decode(compressedData);
-			tempFileName = '/tmp/' + file.substr(0, file.length - 4); //get rid of bzip extension
-			fs.writeFileSync(pictureFileName, data);
+        if (file.substr(file.length - 4, file.length) === ".bzip") {
+            compressedData = fs.readFileSync(file);
+            data = bunzip.decode(compressedData);
+            tempFileName = '/tmp/' + file.substr(0, file.length - 4); //get rid of bzip extension
+            fs.writeFileSync(pictureFileName, data);
             pictureFileName = tempFileName;
 
-		} else {
+        } else {
 
-			pictureFileName = String(file);
-		}
+            pictureFileName = String(file);
+        }
         */
+
         pictureFileName = String(file);
         outFileName = pictureFileName.split('/');
-		outFileName = outFileName[outFileName.length - 1];
-		
-		gm(pictureFileName).resize(argv.width, argv.height).write(argv.outdir + '/' + outFileName, function (err) {
-			if (err) {
-				console.log(err);
-				callback(err);
-			} else {
-				console.log('Wrote ' + argv.outdir + outFileName);
-				callback();
-			}
-		});
-	},
-	function (err) {
+        outFileName = outFileName[outFileName.length - 1];
+
+        try {
+            // Query the entry
+            stats = fs.lstatSync(argv.outdir + '/' + outFileName);
+
+            if (stats.isFile()) {
+                console.log(argv.outdir + '/' + outFileName + ' already exists, skipping, logging to errors.txt');
+                callback();
+            }
+        } catch (e) {
+            console.log('File does not exist');
+
+            gm(pictureFileName).resize(argv.width, argv.height).write(argv.outdir + '/' + outFileName, function (err) {
+                if (err) {
+                    console.log(err);
+                    callback(err);
+                } else {
+                    console.log('Wrote ' + argv.outdir + outFileName);
+                    callback();
+                }
+            });
+        }
+    },
+    function (err) {
         'use strict';
-		if (err) {
-			fs.appendFileSync('errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
-		}
-	}
+        if (err) {
+            fs.appendFile('errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
+        }
+    }
 );
