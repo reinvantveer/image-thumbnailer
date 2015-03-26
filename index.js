@@ -29,6 +29,41 @@ options = {
 var filelist = glob.sync(argv.infiles, options);
 console.log(filelist.length + ' files for processing');
 
+fs.appendFileSync(argv.outdir + '/index.html', "<html>\n <head>\n");
+fs.appendFileSync(argv.outdir + '/index.html',
+    "<style>\n" +
+    ".tile {\n" +
+    "   float: left;\n" +
+    "   background-color: #CCC;\n" +
+    "   width: 193.333px;\n" +
+    "   height: 172px;\n" +
+    "   line-height: 170px;\n" +
+    "}\n" +
+    ".thumbnail {\n" +
+    "    max-width: 193.33333px;\n" +
+    "    max-height: 172px;\n" +
+    "    height: auto;\n" +
+    "    vertical-align: middle;\n" +
+    "}\n" +
+    "</style>\n" +
+    "</head>\n" +
+    "<body>\n");
+
+try { //make img directory if not present
+    // Query the entry
+    stats = fs.lstatSync(argv.outdir + '/img');
+
+    if (stats.isDirectory()) {
+        console.log('img directory already present');
+    } else {
+        console.log('Making img directory');
+        fs.createDirSync(argv.outdir + '/img');
+    }
+} catch (e) {
+    console.log('Making img directory');
+    fs.createDirSync(argv.outdir + '/img');
+}
+
 async.eachLimit(
     filelist,
     20, //limit asynchronous processing to 20 files at the same time
@@ -54,18 +89,27 @@ async.eachLimit(
         outFileName = pictureFileName.split('/');
         outFileName = outFileName[outFileName.length - 1];
 
+        fs.appendFileSync(
+            argv.outdir + '/index.html',
+            "<div class='tile'>\n" +
+                "<a href='file://" + pictureFileName + "'>" +
+                "<img class='thumbnail' src='img/" + outFileName + "'></img>\n" +
+                "</a>\n" +
+                "</div>\n"
+        );
+
         try {
             // Query the entry
-            stats = fs.lstatSync(argv.outdir + '/' + outFileName);
+            stats = fs.lstatSync(argv.outdir + '/img/' + outFileName);
 
             if (stats.isFile()) {
-                console.log(argv.outdir + '/' + outFileName + ' already exists, skipping, logging to errors.txt');
+                console.log(argv.outdir + '/img/' + outFileName + ' already exists, skipping');
                 callback();
             }
         } catch (e) {
-            console.log('File does not exist');
+            console.log('File does not exist yet, making thumbnail');
 
-            gm(pictureFileName).resize(argv.width, argv.height).write(argv.outdir + '/' + outFileName, function (err) {
+            gm(pictureFileName).resize(argv.width, argv.height).write(argv.outdir + '/img/' + outFileName, function (err) {
                 if (err) {
                     console.log(err);
                     callback(err);
@@ -79,7 +123,9 @@ async.eachLimit(
     function (err) {
         'use strict';
         if (err) {
-            fs.appendFile('errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
+            fs.appendFile(argv.outdir + '/errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
         }
     }
 );
+
+fs.appendFile('index.html', "</html>\n </body>\n");
