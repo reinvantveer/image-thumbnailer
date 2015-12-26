@@ -9,6 +9,7 @@ var argv = require('optimist')
     .argv,
     fs = require('fs'),
     path = require('path'),
+    crypto = require('crypto'),
     gm = require('gm'),
     glob = require('glob'),
     bunzip = require('seek-bzip'),
@@ -18,16 +19,25 @@ var options,
     tempFileName,
     pictureFileName,
     outFileName,
+    dirName,
     compressedData,
     stats,
-    data;
+    data,
+    thumbs = [];
 
 options = {
     nocase: true
 };
 
 var filelist = glob.sync(argv.infiles, options);
-console.log(filelist.length + ' files for processing');
+/*
+try { //remove old index.html if present
+    stats = fs.lstatSync(argv.outdir + '/index.html'); //throws error if not found
+    fs.unlinkSync(argv.outdir + '/index.html');
+} catch (err) {
+    fs.appendFileSync(argv.outdir + '/errors.txt', new Date().toLocaleString() + " " + err + "\n");
+}
+
 
 fs.appendFileSync(argv.outdir + '/index.html', "<html>\n <head>\n");
 fs.appendFileSync(argv.outdir + '/index.html',
@@ -48,9 +58,9 @@ fs.appendFileSync(argv.outdir + '/index.html',
     "</style>\n" +
     "</head>\n" +
     "<body>\n");
+*/
 
 try { //make img directory if not present
-    // Query the entry
     stats = fs.lstatSync(argv.outdir + '/img');
 
     if (stats.isDirectory()) {
@@ -86,8 +96,7 @@ async.eachLimit(
         */
 
         pictureFileName = String(file);
-        outFileName = pictureFileName.split('/');
-        outFileName = outFileName[outFileName.length - 1];
+        outFileName = crypto.createHash('md5').update(file).digest('hex') + '.jpg';
 
         fs.appendFileSync(
             argv.outdir + '/index.html',
@@ -98,12 +107,21 @@ async.eachLimit(
                 "</div>\n"
         );
 
+        dirName = pictureFileName.split('/');
+        dirName = dirName[dirName.length - 2];
+
         try {
-            // Query the entry
+            // Check if thumb is already present
             stats = fs.lstatSync(argv.outdir + '/img/' + outFileName);
 
             if (stats.isFile()) {
-                console.log(argv.outdir + '/img/' + outFileName + ' already exists, skipping');
+                thumbs.push({
+                    'src': 'img/' + outFileName,
+                    'href': pictureFileName,
+                    'folder': dirName,
+                    'thumbcreatedate': stats.ctime
+                });
+                console.log('Thumbnail for ' + pictureFileName + ' already exists, skipping');
                 callback();
             }
         } catch (e) {
@@ -114,7 +132,14 @@ async.eachLimit(
                     console.log(err);
                     callback(err);
                 } else {
-                    console.log('Wrote ' + argv.outdir + outFileName);
+                    console.log('Wrote ' + argv.outdir + '/img/' + outFileName);
+                        thumbs.push({
+                            'src': 'img/' + outFileName,
+                            'href': pictureFileName,
+                            'folder': dirName,
+                            'thumbcreatedate': new Date().toLocaleString()
+                        });
+
                     callback();
                 }
             });
@@ -122,10 +147,12 @@ async.eachLimit(
     },
     function (err) {
         'use strict';
+        console.log(filelist.length + ' files for processing');
+        fs.appendFileSync(argv.outdir + '/thumbs.js', "var thumbs = " + JSON.stringify(thumbs) + "\n");
+        fs.appendFileSync(argv.outdir + '/index.html', "</html>\n </body>\n");
+
         if (err) {
             fs.appendFile(argv.outdir + '/errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
         }
     }
 );
-
-fs.appendFile('index.html', "</html>\n </body>\n");

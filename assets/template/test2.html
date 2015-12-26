@@ -1,0 +1,59 @@
+<html>
+<head>
+<style>
+#fixed {
+    float: left;
+    height: 400px;
+    overflow: auto;
+}
+#tile {
+    float: left;
+    background-color: #CCC;
+    width: 193.333px;
+    height: 172px;
+    line-height: 170px;
+    overflow: auto;
+}
+.thumbnail {
+    max-width: 193.33333px;
+    max-height: 172px;
+    height: auto;
+    vertical-align: middle;
+}
+</style>
+<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.2.1/angular.min.js"></script>
+<script>
+function Main($scope) {
+    $scope.items = [];
+    
+    var counter = 0;
+    $scope.loadMore = function() {
+        for (var i = 0; i < 30; i++) {
+            $scope.items.push({id: counter});
+            counter += 10;
+        }
+    };
+    
+    $scope.loadMore();
+}
+
+angular.module('scroll', []).directive('whenScrolled', function() {
+    return function(scope, elm, attr) {
+        var raw = elm[0];
+        
+        elm.bind('scroll', function() {
+            if (raw.scrollTop + raw.offsetHeight >= raw.scrollHeight) {
+                scope.$apply(attr.whenScrolled);
+            }
+        });
+    };
+});
+
+</script>
+</head>
+<body ng-app="scroll" ng-controller="Main">    
+    <div id="fixed" when-scrolled="loadMore()">
+      <div id="tile" ng-repeat="i in items">{{i.id}}</div>
+    </div>
+</body>
+</html>
