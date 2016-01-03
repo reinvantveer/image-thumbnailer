@@ -140,7 +140,9 @@ describe('image-thumbnailer', function() {
             console.log(fileList);
             done();
         });
-    })
+    });
+
+
 });
 
 function getDummyPictureSize(picturePath, callback) {

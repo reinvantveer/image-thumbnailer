@@ -4,6 +4,8 @@ Usage: node index.js -infiles '/images/image*.tiff.bzip' -outdir /thumbs -width 
 */
 'use strict';
 
+var config = require('./config.json');
+
 var fs = require('fs'),
     path = require('path'),
     crypto = require('crypto'),
@@ -12,7 +14,8 @@ var fs = require('fs'),
     async = require('async'),
     elasticsearch = require('elasticsearch'),
     mkdirp = require('mkdirp'),
-    file = require('file');
+    file = require('file'),
+    express = require('express');
 
 var options,
     pictureFileName,
@@ -21,7 +24,7 @@ var options,
     thumbs = [],
     ESclient;
 
-var config = require('./config.json');
+var app = express();
 
 options = {
     nocase: true
@@ -38,10 +41,11 @@ module.exports.getMetadata = getMetadata;
 module.exports.createHash = createHash;
 module.exports.getFilenamesFromDir = getFilenamesFromDir;
 
-function main(){
-    connectToES();
-    startService();
-}
+(function main(){
+    connectToES(function startServer(){
+        startService();
+    });
+})();
 
 function connectToES(callback) {
     ESclient = new elasticsearch.Client({
@@ -66,6 +70,19 @@ function connectToES(callback) {
     });
 }
 
+function startService(){
+    app.get('/test', function (req, res) {
+        res.send('Up and running');
+    });
+
+    var server = app.listen(3000, function () {
+        var host = server.address().address;
+        var port = server.address().port;
+
+        console.log('Web server and API listening at http://%s:%s', host, port);
+    });
+}
+
 function createIndex(indexName, callback){
     ESclient.indices.create({
         index: indexName
@@ -82,9 +99,7 @@ function deleteIndex(indexName, callback){
     })
 }
 
-function startService(){
-    //start service
-}
+
 
 function getFilenamesFromDir(dirName){
     var files = [];
@@ -99,8 +114,10 @@ function getFilenamesFromDir(dirName){
 }
 
 function processFileDir(path){
+    var fileList = getFilenamesFromDir(path);
+
     async.eachLimit({
-        array: filelist,
+        array: fileList,
         limit: 20,
         iterator: processFile,
         callback: asyncComplete
