@@ -1,0 +1,9 @@
+{
+    "host": "localhost",
+    "port": 9200,
+    "indexName": "imageThumbnailer",
+    "docType": "image",
+    "thumbnailDir": "thumbs/",
+    "width": 240,
+    "height": 240
+}

@@ -2,157 +2,253 @@
 Thumbnail generation script for images or bzipped images
 Usage: node index.js -infiles '/images/image*.tiff.bzip' -outdir /thumbs -width 250 -height 180
 */
+'use strict';
 
-var argv = require('optimist')
-    .usage('Create image thumbnails from .\nUsage: $0')
-    .demand(['infiles', 'outdir', 'width', 'height'])
-    .argv,
-    fs = require('fs'),
+var fs = require('fs'),
     path = require('path'),
     crypto = require('crypto'),
     gm = require('gm'),
-    glob = require('glob'),
     bunzip = require('seek-bzip'),
-    async = require('async');
+    async = require('async'),
+    elasticsearch = require('elasticsearch'),
+    mkdirp = require('mkdirp'),
+    file = require('file');
 
 var options,
-    tempFileName,
     pictureFileName,
     outFileName,
-    dirName,
-    compressedData,
     stats,
-    data,
-    thumbs = [];
+    thumbs = [],
+    ESclient;
+
+var config = require('./config.json');
 
 options = {
     nocase: true
 };
 
-var filelist = glob.sync(argv.infiles, options);
-/*
-try { //remove old index.html if present
-    stats = fs.lstatSync(argv.outdir + '/index.html'); //throws error if not found
-    fs.unlinkSync(argv.outdir + '/index.html');
-} catch (err) {
-    fs.appendFileSync(argv.outdir + '/errors.txt', new Date().toLocaleString() + " " + err + "\n");
+module.exports.connectToES = connectToES;
+module.exports.createIndex = createIndex;
+module.exports.deleteIndex = deleteIndex;
+module.exports.createOrUpdateDocument = createOrUpdateDocument;
+module.exports.createThumbnailDir = createThumbnailDir;
+module.exports.resizeImage = resizeImage;
+module.exports.writeThumbnail = writeThumbnail;
+module.exports.getMetadata = getMetadata;
+module.exports.createHash = createHash;
+module.exports.getFilenamesFromDir = getFilenamesFromDir;
+
+function main(){
+    connectToES();
+    startService();
 }
 
+function connectToES(callback) {
+    ESclient = new elasticsearch.Client({
+        host: 'localhost:9200',
+        log: 'trace'
+    });
 
-fs.appendFileSync(argv.outdir + '/index.html', "<html>\n <head>\n");
-fs.appendFileSync(argv.outdir + '/index.html',
-    "<style>\n" +
-    ".tile {\n" +
-    "   float: left;\n" +
-    "   background-color: #CCC;\n" +
-    "   width: 193.333px;\n" +
-    "   height: 172px;\n" +
-    "   line-height: 170px;\n" +
-    "}\n" +
-    ".thumbnail {\n" +
-    "    max-width: 193.33333px;\n" +
-    "    max-height: 172px;\n" +
-    "    height: auto;\n" +
-    "    vertical-align: middle;\n" +
-    "}\n" +
-    "</style>\n" +
-    "</head>\n" +
-    "<body>\n");
-*/
+    ESclient.ping({
+        // ping usually has a 3000ms timeout
+        requestTimeout: 3000,
 
-try { //make img directory if not present
-    stats = fs.lstatSync(argv.outdir + '/img');
-
-    if (stats.isDirectory()) {
-        console.log('img directory already present');
-    } else {
-        console.log('Making img directory');
-        fs.createDirSync(argv.outdir + '/img');
-    }
-} catch (e) {
-    console.log('Making img directory');
-    fs.createDirSync(argv.outdir + '/img');
-}
-
-async.eachLimit(
-    filelist,
-    20, //limit asynchronous processing to 20 files at the same time
-    function (file, callback) {
-        'use strict';
-        console.log(file);
-
-        /*
-        if (file.substr(file.length - 4, file.length) === ".bzip") {
-            compressedData = fs.readFileSync(file);
-            data = bunzip.decode(compressedData);
-            tempFileName = '/tmp/' + file.substr(0, file.length - 4); //get rid of bzip extension
-            fs.writeFileSync(pictureFileName, data);
-            pictureFileName = tempFileName;
-
+        // undocumented params are appended to the query string
+        hello: "elasticsearch!"
+    }, function (error) {
+        if (error) {
+            console.error('elasticsearch is down!');
+            return callback(error);
         } else {
-
-            pictureFileName = String(file);
+            console.log('All is well');
+            return callback();
         }
-        */
+    });
+}
 
-        pictureFileName = String(file);
-        outFileName = crypto.createHash('md5').update(file).digest('hex') + '.jpg';
+function createIndex(indexName, callback){
+    ESclient.indices.create({
+        index: indexName
+    }, function (error, response){
+        return callback(error, response);
+    })
+}
 
-        fs.appendFileSync(
-            argv.outdir + '/index.html',
-            "<div class='tile'>\n" +
-                "<a href='file://" + pictureFileName + "'>" +
-                "<img class='thumbnail' src='img/" + outFileName + "'></img>\n" +
-                "</a>\n" +
-                "</div>\n"
-        );
+function deleteIndex(indexName, callback){
+    ESclient.indices.delete({
+        index: indexName
+    }, function (error, response){
+        return callback(error, response);
+    })
+}
 
-        dirName = pictureFileName.split('/');
-        dirName = dirName[dirName.length - 2];
+function startService(){
+    //start service
+}
 
-        try {
-            // Check if thumb is already present
-            stats = fs.lstatSync(argv.outdir + '/img/' + outFileName);
+function getFilenamesFromDir(dirName){
+    var files = [];
 
-            if (stats.isFile()) {
-                thumbs.push({
-                    'src': 'img/' + outFileName,
-                    'href': pictureFileName,
-                    'folder': dirName,
-                    'thumbcreatedate': stats.ctime
-                });
-                console.log('Thumbnail for ' + pictureFileName + ' already exists, skipping');
-                callback();
-            }
-        } catch (e) {
-            console.log('File does not exist yet, making thumbnail');
+    file.walkSync(dirName, function(start, dirs, names) {
+        names.map(function (fileName) {
+            files.push(path.join(start, fileName));
+        });
+    });
 
-            gm(pictureFileName).resize(argv.width, argv.height).write(argv.outdir + '/img/' + outFileName, function (err) {
-                if (err) {
-                    console.log(err);
-                    callback(err);
-                } else {
-                    console.log('Wrote ' + argv.outdir + '/img/' + outFileName);
-                        thumbs.push({
-                            'src': 'img/' + outFileName,
-                            'href': pictureFileName,
-                            'folder': dirName,
-                            'thumbcreatedate': new Date().toLocaleString()
-                        });
+    return files;
+}
 
-                    callback();
+function processFileDir(path){
+    async.eachLimit({
+        array: filelist,
+        limit: 20,
+        iterator: processFile,
+        callback: asyncComplete
+
+    });
+
+}
+function createThumbnailDir(thumbnailDir, callback){
+    mkdirp(thumbnailDir, function(error){
+        if (error) {
+            console.error('Error making directory ' + thumbnailDir);
+            throw(error);
+        }
+        callback(error)
+    });
+}
+
+function resizeImage(pictureFileName){
+    return gm(pictureFileName).resize(config.width, config.height);
+}
+
+function writeThumbnail(path, image){
+    fs.writeFileSync(path, image);
+}
+
+function getMetadata(filePath, callback) {
+    try {
+        stats = fs.lstatSync(filePath);
+    } catch (err) {
+        console.error('Unable to read from file path', filePath);
+        return callback();
+    }
+
+    fs.readFile(filePath, function createMetadata(err, data){
+        if (err) {
+            console.error('There was an error reading from file', filePath, err);
+            return callback();
+        }
+
+        outFileName = createHash(data) + '.jpg';
+
+        var dirNames = path.normalize(filePath).split(path.sep);
+
+        var metadata = {
+            thumbnailFileName: outFileName,
+            href: pictureFileName,
+            folders: dirNames,
+            thumbcreatedate: stats.ctime
+        };
+
+        return callback(metadata);
+    });
+}
+
+function createHash(data) {
+    return crypto.createHash('md5')
+            .update(data)
+            .digest('hex');
+}
+
+function createOrUpdateDocument(index, type, docId, callback){
+    ESclient.exists({
+        index: index,
+        type: type,
+        id: docId
+    }, function docExistsCallback(error, exists) {
+        if (exists === true) {
+            ESclient.update({
+                index: index,
+                type: type,
+                id: docId,
+                body: {
+                    // put the partial document under the `doc` key
+                    doc: {
+                        title: 'Updated'
+                    }
                 }
+            }, function (error, response) {
+                return callback(error, response);
+            });
+        } else {
+            ESclient.create({
+                index: index,
+                type: type,
+                id: docId,
+                body: {
+                    title: 'Test 1',
+                    tags: ['y', 'z'],
+                    published: true,
+                    published_at: '2013-01-01',
+                    counter: 1
+                }
+            }, function (error, response) {
+                return callback(error, response);
             });
         }
-    },
-    function (err) {
-        'use strict';
-        console.log(filelist.length + ' files for processing');
-        fs.appendFileSync(argv.outdir + '/thumbs.js', "var thumbs = " + JSON.stringify(thumbs) + "\n");
-        fs.appendFileSync(argv.outdir + '/index.html', "</html>\n </body>\n");
+    });
+}
 
-        if (err) {
-            fs.appendFile(argv.outdir + '/errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
+function processFile(filePath, asyncCallbackDone) {
+    try {
+        // Check if thumb is already present
+        stats = fs.lstatSync(config.thumbnailDir + outFileName);
+
+        if (stats.isFile()) {
+            console.log('Thumbnail for ' + pictureFileName + ' already exists, skipping thumbnail creation');
         }
+    } catch (e) {
+        console.log('File does not exist yet, making thumbnail');
+
+        var thumbnail = resizeImage(file);
+        thumbnail.write(path.join(__dirname, config.thumbnailDir, outFileName), checkCorrectWrite);
     }
-);
+
+    var hash = getMetadata(filePath);
+    createOrUpdateDocument(config.indexName, config.docType, hash, function done(){
+        asyncCallbackDone();
+    })
+}
+
+function checkCorrectWrite(err) {
+    if (err) {
+        console.log(err);
+        callback(err);
+    } else {
+        console.log('Wrote ' + config.thumbnailDir + outFileName);
+    }
+}
+
+function asyncComplete(err) {
+    'use strict';
+    console.log(filelist.length + ' files for processing');
+    fs.appendFileSync(argv.outdir + '/thumbs.js', "var thumbs = " + JSON.stringify(thumbs) + "\n");
+    fs.appendFileSync(argv.outdir + '/index.html', "</html>\n </body>\n");
+
+    if (err) {
+        fs.appendFile(argv.outdir + '/errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
+    }
+}
+
+function extractBZIP(file){
+    if (file.substr(file.length - 4, file.length) === ".bzip") {
+        var compressedData = fs.readFileSync(file);
+        var data = bunzip.decode(compressedData);
+        var tempFileName = '/tmp/' + file.substr(0, file.length - 4); //get rid of bzip extension
+        fs.writeFileSync(pictureFileName, data);
+        pictureFileName = tempFileName;
+    } else {
+        pictureFileName = String(file);
+    }
+}

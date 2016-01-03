@@ -1,4 +1,5 @@
 /node_modules
 /thumbs.json
-/node_modules/
 /errors.txt
+/test/thumbs/octobiwan.thumb.jpg
+/.idea/
