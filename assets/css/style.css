@@ -1,0 +1,29 @@
+.sidebar {
+    float: left;
+    height: 100%;
+    width: 20%;
+    overflow: auto;
+}
+.fixed {
+    float: left;
+    height: 90%;
+    width: 80%;
+    overflow: auto;
+}
+.selectElement {
+    width: 200px
+}
+.tile {
+    float: left;
+    background-color: #CCC;
+    width: 193.333px;
+    height: 172px;
+    line-height: 170px;
+    overflow: auto;
+}
+.thumbnail {
+    max-width: 193.33333px;
+    max-height: 172px;
+    height: auto;
+    vertical-align: middle;
+}
