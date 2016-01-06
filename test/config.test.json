@@ -1,8 +1,10 @@
 {
-    "host": "localhost",
-    "port": 9200,
-    "indexName": "myindex",
-    "docType": "mytype",
+    "elasticsearch": {
+        "connectParams": "localhost:9200",
+        "indexName":  "myindex",
+        "docType": "mytype"
+    },
+    "pictureDir": "./",
     "thumbnailDir": "thumbs/",
     "width": 240,
     "height": 240

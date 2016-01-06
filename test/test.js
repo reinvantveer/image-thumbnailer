@@ -1,6 +1,8 @@
 'use strict';
 
-var config = require('./config.test.json');
+var testconfig = require('./config.test.json');
+var config_for_real = require('../config.json');
+
 
 var assert = require('assert'),
     gm = require('gm'),
@@ -11,9 +13,9 @@ var assert = require('assert'),
 
 var dummyPicturePath = path.join(__dirname, 'octobiwan.jpg'),
     dummyDuplicatePicturePath = path.join(__dirname, 'octobiwan2.jpg'),
-    dummyThumbnailPath = path.join(__dirname, config.thumbnailDir, 'octobiwan.thumb.jpg'),
+    dummyThumbnailPath = path.join(__dirname, testconfig.thumbnailDir, 'octobiwan.thumb.jpg'),
     noPicturePath = path.join(__dirname, 'README.md'),
-    thumbnailPath = path.join(__dirname, config.thumbnailDir);
+    thumbnailPath = path.join(__dirname, testconfig.thumbnailDir);
 
 var installGMMessage = 'Please install GraphicsMagick and make sure that the console you are using is aware of the binaries directory of GraphicsMagick';
 
@@ -29,6 +31,13 @@ describe('image-thumbnailer', function() {
                 done();
             });
         });
+    });
+
+    it('should verify the config picture directory as existing and valid', function shouldValidatePictureDir(){
+        assert.doesNotThrow(function validatePictureDir(){
+            assert.equal(imageThumbnailer.isValidPicturePath(config_for_real.pictureDir), true);
+        });
+
     });
 
     it('should be able to recognise a text file as a non-image file', function(done) {
@@ -54,7 +63,7 @@ describe('image-thumbnailer', function() {
 
     it('should be able to create an index', function shouldCreateIndex(done){
         assert.doesNotThrow(function makeIndex(){
-            imageThumbnailer.createIndex(config.indexName, function(error){
+            imageThumbnailer.createIndex(testconfig.elasticsearch.indexName, function(error){
                 if (error){
                     console.error('Unable to create index');
                     throw(error);
@@ -66,7 +75,7 @@ describe('image-thumbnailer', function() {
 
     it('should be able to create a document in the dummy index', function shouldCreateDoc(done){
         assert.doesNotThrow(function createDoc(){
-            imageThumbnailer.createOrUpdateDocument(config.indexName, config.docType, 'my test doc', function(error){
+            imageThumbnailer.createOrUpdateDocument(testconfig.elasticsearch.indexName, testconfig.elasticsearch.docType, 'my test doc', function(error){
                 if (error){
                     console.error('Unable to create document');
                     throw(error);
@@ -78,7 +87,7 @@ describe('image-thumbnailer', function() {
 
     it('should be able to delete an index', function shouldCreateIndex(done){
         assert.doesNotThrow(function makeIndex(){
-            imageThumbnailer.deleteIndex(config.indexName, function(error){
+            imageThumbnailer.deleteIndex(testconfig.elasticsearch.indexName, function(error){
                 if (error){
                     console.error('Unable to create index');
                     throw(error);

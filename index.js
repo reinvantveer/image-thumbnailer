@@ -17,20 +17,14 @@ var fs = require('fs'),
     file = require('file'),
     express = require('express');
 
-var options,
-    pictureFileName,
+var pictureFileName,
     outFileName,
     stats,
     thumbs = [],
     ESclient;
 
-var app = express();
-
-options = {
-    nocase: true
-};
-
 module.exports.connectToES = connectToES;
+module.exports.isValidPicturePath = isValidPicturePath;
 module.exports.createIndex = createIndex;
 module.exports.deleteIndex = deleteIndex;
 module.exports.createOrUpdateDocument = createOrUpdateDocument;
@@ -42,14 +36,23 @@ module.exports.createHash = createHash;
 module.exports.getFilenamesFromDir = getFilenamesFromDir;
 
 (function main(){
-    connectToES(function startServer(){
-        startService();
+    connectToES(function startServer(error){
+        if (error) {
+            console.error('The connection with the picture indexer could not be made, exiting');
+            throw(error);
+        } else {
+            if (isValidPicturePath(config.pictureDir)) {
+                startService();
+            } else {
+                console.error(config.pictureDir, ' does not look like a valid directory to prcess. Please specify a different directory of images to process.')
+            }
+        }
+
     });
 })();
-
 function connectToES(callback) {
     ESclient = new elasticsearch.Client({
-        host: 'localhost:9200',
+        host: config.elasticsearch.connectParams,
         log: 'trace'
     });
 
@@ -70,9 +73,27 @@ function connectToES(callback) {
     });
 }
 
+function isValidPicturePath(pictureDir) {
+    try {
+        var stats = fs.lstatSync(path.resolve(pictureDir));
+        return stats.isDirectory() ? true : false;
+    } catch (err) {
+        console.error('Something went wrong checking for configurated directory', pictureDir, ', please specify a valid directory in the config.json file.');
+        return false
+    }
+
+}
+
 function startService(){
-    app.get('/test', function (req, res) {
+    var app = express();
+    app.use(express.static('assets'));
+
+    app.get('/test', function sendTest(req, res) {
         res.send('Up and running');
+    });
+
+    app.get('/picturedir', function sendPictureDir(req,res){
+        res.send(JSON.stringify(path.resolve(config.pictureDir)));
     });
 
     var server = app.listen(3000, function () {
@@ -233,7 +254,7 @@ function processFile(filePath, asyncCallbackDone) {
     }
 
     var hash = getMetadata(filePath);
-    createOrUpdateDocument(config.indexName, config.docType, hash, function done(){
+    createOrUpdateDocument(config.elasticsearch.indexName, config.elasticsearch.docType, hash, function done(){
         asyncCallbackDone();
     })
 }
