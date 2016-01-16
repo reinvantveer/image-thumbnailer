@@ -50,6 +50,29 @@ module.exports.getFilenamesFromDir = getFilenamesFromDir;
 
     });
 })();
+
+function startService(){
+    var app = express();
+    app.use(express.static('assets'));
+
+    app.get('/test', function sendTest(req, res) {
+        res.send('Up and running');
+    });
+
+    app.get('/picturedir', function sendPictureDir(req,res){
+        res.json({path: path.resolve(config.pictureDir)});
+    });
+
+    app.get('/filelist', sendFileList);
+
+    var server = app.listen(3000, function () {
+        var host = server.address().address;
+        var port = server.address().port;
+
+        console.log('Web server and API listening at http://%s:%s', host, port);
+    });
+}
+
 function connectToES(callback) {
     ESclient = new elasticsearch.Client({
         host: config.elasticsearch.connectParams,
@@ -73,6 +96,7 @@ function connectToES(callback) {
     });
 }
 
+
 function isValidPicturePath(pictureDir) {
     try {
         var stats = fs.lstatSync(path.resolve(pictureDir));
@@ -84,45 +108,19 @@ function isValidPicturePath(pictureDir) {
 
 }
 
-function startService(){
-    var app = express();
-    app.use(express.static('assets'));
-
-    app.get('/test', function sendTest(req, res) {
-        res.send('Up and running');
-    });
-
-    app.get('/picturedir', function sendPictureDir(req,res){
-        res.send(JSON.stringify(path.resolve(config.pictureDir)));
-    });
-
-    var server = app.listen(3000, function () {
-        var host = server.address().address;
-        var port = server.address().port;
-
-        console.log('Web server and API listening at http://%s:%s', host, port);
-    });
+function sendFileList(req, res){
+    if (!req.query) return res.send("Requires query parameter ?directory=[urlencoded dir]");
+    if (!req.query.directory) {
+        return res.send("Requires query parameter ?directory=[urlencoded dir]");
+    } else {
+        var JSONobject = JSON.parse('{ "path": ' + req.query.directory + '}');
+        return res.json({path: getFilenamesFromDir(JSONobject.path)});
+    }
 }
-
-function createIndex(indexName, callback){
-    ESclient.indices.create({
-        index: indexName
-    }, function (error, response){
-        return callback(error, response);
-    })
-}
-
-function deleteIndex(indexName, callback){
-    ESclient.indices.delete({
-        index: indexName
-    }, function (error, response){
-        return callback(error, response);
-    })
-}
-
 
 
 function getFilenamesFromDir(dirName){
+    console.log("dirName", dirName);
     var files = [];
 
     file.walkSync(dirName, function(start, dirs, names) {
@@ -133,6 +131,25 @@ function getFilenamesFromDir(dirName){
 
     return files;
 }
+
+
+function createIndex(indexName, callback){
+    ESclient.indices.create({
+        index: indexName
+    }, function (error, response){
+        return callback(error, response);
+    })
+}
+
+
+function deleteIndex(indexName, callback){
+    ESclient.indices.delete({
+        index: indexName
+    }, function (error, response){
+        return callback(error, response);
+    })
+}
+
 
 function processFileDir(path){
     var fileList = getFilenamesFromDir(path);
@@ -268,6 +285,7 @@ function checkCorrectWrite(err) {
     }
 }
 
+
 function asyncComplete(err) {
     'use strict';
     console.log(filelist.length + ' files for processing');
@@ -278,7 +296,6 @@ function asyncComplete(err) {
         fs.appendFile(argv.outdir + '/errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
     }
 }
-
 function extractBZIP(file){
     if (file.substr(file.length - 4, file.length) === ".bzip") {
         var compressedData = fs.readFileSync(file);

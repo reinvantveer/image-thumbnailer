@@ -59,21 +59,19 @@
                 <div class="form-group">
                     <label for="inputDir" class="col-lg-2 control-label">Directory</label>
                     <div class="col-lg-10">
-                        <input class="form-control" id="inputDir" placeholder="Dir" type="text">
+                        <input class="form-control" id="inputDir" placeholder="Dir" type="text" ng-model="pictureDir">
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="textArea" class="col-lg-2 control-label">Textarea</label>
+                    <label for="textArea" class="col-lg-2 control-label">Files in this folder:</label>
                     <div class="col-lg-10">
-                        <textarea class="form-control" rows="12" id="textArea" disabled></textarea>
-                        <span class="help-block">This area will show the (sub)directory listing of files once you have clicked submit.</span>
+                        <textarea class="form-control" rows="12" id="textArea" disabled ng-model="fileList"></textarea>
                     </div>
                 </div>
                 <div class="form-group">
                     <div class="col-lg-10 col-lg-offset-2">
-                        <button type="reset" class="btn btn-default">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Submit</button>
+                        <button type="submit" class="btn btn-primary">Process 'em!</button>
                     </div>
                 </div>
             </fieldset>

@@ -4,8 +4,8 @@
         "indexName": "imageThumbnailer",
         "docType": "image"
     },
-    "pictureDir": ".",
-    "thumbnailDir": "thumbs/",
+    "pictureDir": "./test",
+    "thumbnailDir": "thumbs",
     "width": 240,
     "height": 240
 }
