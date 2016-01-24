@@ -9,7 +9,7 @@ thumbnailApp.controller('pictureDirController', ['$scope', '$http', function($sc
                 console.log('Got picturedir response', response);
                 if (response.data.path) {
                     $scope.pictureDir = response.data.path;
-                    $scope.loadFileList(JSON.stringify(response.data.path));
+                    $scope.loadFileList(response.data.path);
                 } else {
                     console.error('Unexpected API response without picture path');
                 }
@@ -28,8 +28,17 @@ thumbnailApp.controller('pictureDirController', ['$scope', '$http', function($sc
                     }, "");
             }, function errorCallback(response) {
                 console.error(response);
-            })
-    }
+            });
+    };
+
+    $scope.submit = function submitButtonClicked() {
+        $http.get('/process?directory=' + encodeURIComponent($scope.pictureDir))
+            .then( function successCallback(response){
+                console.log(response.data);
+            }, function errorCallback(response) {
+                console.error(response);
+            });
+    };
 
 }]);
 
