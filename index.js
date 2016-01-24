@@ -1,77 +1,84 @@
 /*
 Thumbnail generation script for images or bzipped images
-Usage: node index.js -infiles '/images/image*.tiff.bzip' -outdir /thumbs -width 250 -height 180
 */
 'use strict';
 
 var config = require('./config.json');
 
-var fs = require('fs'),
+var
+    fs = require('fs'),
     path = require('path'),
     crypto = require('crypto'),
     gm = require('gm'),
-    bunzip = require('seek-bzip'),
-    async = require('async'),
+    highland = require('highland'),
     elasticsearch = require('elasticsearch'),
     mkdirp = require('mkdirp'),
     file = require('file'),
     express = require('express');
 
+var Promise = require('bluebird');
+Promise.promisifyAll(fs);
+
 var pictureFileName,
     outFileName,
-    stats,
-    thumbs = [],
     ESclient;
 
-module.exports.connectToES = connectToES;
-module.exports.isValidPicturePath = isValidPicturePath;
-module.exports.createIndex = createIndex;
-module.exports.deleteIndex = deleteIndex;
-module.exports.createOrUpdateDocument = createOrUpdateDocument;
-module.exports.createThumbnailDir = createThumbnailDir;
-module.exports.resizeImage = resizeImage;
-module.exports.writeThumbnail = writeThumbnail;
-module.exports.getMetadata = getMetadata;
-module.exports.createHash = createHash;
-module.exports.getFilenamesFromDir = getFilenamesFromDir;
+module.exports = {
+    connectToES: connectToES,
+    isValidPicturePath : isValidPicturePath,
+    createIndex : createIndex,
+    deleteIndex : deleteIndex,
+    createOrUpdateDocument : createOrUpdateDocument,
+    createThumbnailDir : createThumbnailDir,
+    resizeImage : resizeImage,
+    getMetadata : getMetadata,
+    createHash : createHash,
+    getFilenamesFromDir : getFilenamesFromDir,
+    processFileDir : processFileDir,
+    processFile : processFile,
+    isPicture : isPicture,
+    writeFile : writeFile
+};
 
 (function main(){
-    connectToES(function startServer(error){
-        if (error) {
+    connectToES(function startServer(ESclient){
+        if (!ESclient) {
             console.error('The connection with the picture indexer could not be made, exiting');
             throw(error);
         } else {
             if (isValidPicturePath(config.pictureDir)) {
                 startService();
             } else {
-                console.error(config.pictureDir, ' does not look like a valid directory to prcess. Please specify a different directory of images to process.')
+                console.error(config.pictureDir, ' does not look like a valid directory to process. Please specify a different directory of images to process.')
             }
+        }
+
+        function startService(){
+            var app = express();
+            app.use(express.static('assets'));
+
+            app.get('/test', function sendTestRequest(req, res) {
+                res.send('Up and running');
+            });
+
+            app.get('/picturedir', function sendPictureDirRequest(req, res){
+                res.json({path: path.resolve(config.pictureDir)});
+            });
+
+            app.get('/filelist', sendFileListRequest);
+
+            app.get('/process', processDirRequest);
+
+            var server = app.listen(3000, function () {
+                var host = server.address().address;
+                var port = server.address().port;
+
+                console.log('Web server and API listening at http://%s:%s', host, port);
+            });
         }
 
     });
 })();
-
-function startService(){
-    var app = express();
-    app.use(express.static('assets'));
-
-    app.get('/test', function sendTest(req, res) {
-        res.send('Up and running');
-    });
-
-    app.get('/picturedir', function sendPictureDir(req,res){
-        res.json({path: path.resolve(config.pictureDir)});
-    });
-
-    app.get('/filelist', sendFileList);
-
-    var server = app.listen(3000, function () {
-        var host = server.address().address;
-        var port = server.address().port;
-
-        console.log('Web server and API listening at http://%s:%s', host, port);
-    });
-}
 
 function connectToES(callback) {
     ESclient = new elasticsearch.Client({
@@ -79,23 +86,9 @@ function connectToES(callback) {
         log: 'trace'
     });
 
-    ESclient.ping({
-        // ping usually has a 3000ms timeout
-        requestTimeout: 3000,
+    return callback(ESclient);
 
-        // undocumented params are appended to the query string
-        hello: "elasticsearch!"
-    }, function (error) {
-        if (error) {
-            console.error('elasticsearch is down!');
-            return callback(error);
-        } else {
-            console.log('All is well');
-            return callback();
-        }
-    });
 }
-
 
 function isValidPicturePath(pictureDir) {
     try {
@@ -108,16 +101,14 @@ function isValidPicturePath(pictureDir) {
 
 }
 
-function sendFileList(req, res){
+function sendFileListRequest(req, res){
     if (!req.query) return res.send("Requires query parameter ?directory=[urlencoded dir]");
     if (!req.query.directory) {
         return res.send("Requires query parameter ?directory=[urlencoded dir]");
     } else {
-        var JSONobject = JSON.parse('{ "path": ' + req.query.directory + '}');
-        return res.json({path: getFilenamesFromDir(JSONobject.path)});
+        return res.json({path: getFilenamesFromDir(req.query.directory)});
     }
 }
-
 
 function getFilenamesFromDir(dirName){
     console.log("dirName", dirName);
@@ -132,6 +123,132 @@ function getFilenamesFromDir(dirName){
     return files;
 }
 
+function processDirRequest(req, res) {
+    console.log('Process request to process directory');
+
+    if (!req.query) return res.send("Requires query parameter ?directory=[urlencoded dir]");
+    if (!req.query.directory) {
+        return res.send("Requires query parameter ?directory=[urlencoded dir]");
+    } else {
+        return res.json({result: processFileDir(req.query.directory, path.resolve(config.thumbnailDir))});
+    }
+}
+
+function processFileDir(pictureDir, thumbnailDir){
+    var fileList = getFilenamesFromDir(pictureDir);
+    var thumbs = [];
+
+    highland(fileList)
+        .each(function(file){
+            console.log(file);
+            processFile(file, thumbnailDir, function(thumbnailPath){
+                thumbs.push(thumbnailPath);
+            });
+        })
+        .parallel(10)
+        .done(function(){
+            return thumbs
+        });
+}
+
+function processFile(filePath, thumbnailDir, config) {
+    return isPicture(filePath)
+        .then(function(filePath){
+            return createHash(filePath)
+        })
+        .then(function (hash) {
+            var thumbnailPath = path.join(thumbnailDir, hash + ".jpg");
+            console.log("Processing ", filePath, "to", thumbnailPath);
+            return fs.statAsync(thumbnailPath)
+                .then(function didResolve(){
+                    console.log('Thumbnail for ' + pictureFileName + ' already exists, skipping thumbnail creation');
+                    return getMetadata(filePath, hash, thumbnailPath);
+                })
+                .catch(function didReject(err){
+                    console.log('File does not exist yet, making thumbnail', thumbnailPath);
+                    return resizeImage(filePath)
+                        .then(function (thumbnail) {
+                            return writeFile(thumbnail, thumbnailPath);
+                        })
+                        .then(function(filePath, hash, thumbnailPath){
+                            return getMetadata(filePath, hash, thumbnailPath);
+                        })
+                        .catch(function(err){
+                            console.error("processFile encountered error", err.stack);
+                            throw (err);
+                        });
+                })
+        })
+        .then(function (metadata) {
+            return createOrUpdateDocument(config.elasticsearch.indexName, config.elasticsearch.docType, metadata.id, metadata)
+        })
+        .catch(function (err) {
+            console.error("processFile encountered error", err.stack);
+            throw (err);
+        })
+}
+
+function createHash(filePath) {
+    return new Promise( function(resolve, reject){
+        fs.readFile(filePath, function(err, data){
+            if (err) {
+                reject(err)
+            } else {
+                resolve(
+                    crypto.createHash('md5')
+                        .update(data)
+                        .digest('hex')
+                )
+            }
+        });
+    });
+}
+
+function isPicture(picturePath) {
+    return new Promise(function (resolve, reject) {
+        gm(picturePath).size( function resolveOrReject(err) {
+            if (err) {
+                reject(err)
+            } else {
+                resolve(picturePath);
+            }
+        });
+    })
+}
+
+function resizeImage(pictureFileName, metadata){
+    return new Promise( function(resolve, reject){
+        resolve(gm(pictureFileName).resize(config.width, config.height), metadata);
+    });
+}
+
+function getMetadata(filePath, hash, thumbnailPath) {
+    return fs.statAsync(filePath)
+        .then(function(stats) {
+            var metadata = {
+                id: hash,
+                thumbnailFileName: thumbnailPath,
+                href: pictureFileName,
+                folders: path.normalize(filePath).split(path.sep),
+                thumbCreateDate: stats.ctime
+            };
+            return new Promise.resolve(metadata);
+        });
+}
+
+function writeFile(thumbnail, thumbnailPath){
+    return new Promise(function (resolve, reject){
+            thumbnail.write(thumbnailPath, function checkCorrectWrite(err) {
+                if (err) {
+                    console.error("Error on writing thumbnail to ", err);
+                    reject(err);
+                } else {
+                    console.log('Wrote ' + config.thumbnailDir + outFileName);
+                    resolve();
+                }
+            });
+    });
+}
 
 function createIndex(indexName, callback){
     ESclient.indices.create({
@@ -141,7 +258,6 @@ function createIndex(indexName, callback){
     })
 }
 
-
 function deleteIndex(indexName, callback){
     ESclient.indices.delete({
         index: indexName
@@ -150,19 +266,6 @@ function deleteIndex(indexName, callback){
     })
 }
 
-
-function processFileDir(path){
-    var fileList = getFilenamesFromDir(path);
-
-    async.eachLimit({
-        array: fileList,
-        limit: 20,
-        iterator: processFile,
-        callback: asyncComplete
-
-    });
-
-}
 function createThumbnailDir(thumbnailDir, callback){
     mkdirp(thumbnailDir, function(error){
         if (error) {
@@ -173,137 +276,50 @@ function createThumbnailDir(thumbnailDir, callback){
     });
 }
 
-function resizeImage(pictureFileName){
-    return gm(pictureFileName).resize(config.width, config.height);
-}
-
-function writeThumbnail(path, image){
-    fs.writeFileSync(path, image);
-}
-
-function getMetadata(filePath, callback) {
-    try {
-        stats = fs.lstatSync(filePath);
-    } catch (err) {
-        console.error('Unable to read from file path', filePath);
-        return callback();
-    }
-
-    fs.readFile(filePath, function createMetadata(err, data){
-        if (err) {
-            console.error('There was an error reading from file', filePath, err);
-            return callback();
-        }
-
-        outFileName = createHash(data) + '.jpg';
-
-        var dirNames = path.normalize(filePath).split(path.sep);
-
-        var metadata = {
-            thumbnailFileName: outFileName,
-            href: pictureFileName,
-            folders: dirNames,
-            thumbcreatedate: stats.ctime
-        };
-
-        return callback(metadata);
-    });
-}
-
-function createHash(data) {
-    return crypto.createHash('md5')
-            .update(data)
-            .digest('hex');
-}
-
-function createOrUpdateDocument(index, type, docId, callback){
-    ESclient.exists({
-        index: index,
-        type: type,
-        id: docId
-    }, function docExistsCallback(error, exists) {
-        if (exists === true) {
-            ESclient.update({
-                index: index,
-                type: type,
-                id: docId,
-                body: {
-                    // put the partial document under the `doc` key
-                    doc: {
-                        title: 'Updated'
+function createOrUpdateDocument(index, type, docId, metadata){
+    return new Promise(function (resolve, reject) {
+        ESclient.exists({
+            index: index,
+            type: type,
+            id: docId
+        }, function docExistsCallback(error, exists) {
+            if (exists === true) {
+                ESclient.update({
+                    index: index,
+                    type: type,
+                    id: docId,
+                    body: {
+                        doc: {
+                            title: 'Updated'
+                        }
                     }
-                }
-            }, function (error, response) {
-                return callback(error, response);
-            });
-        } else {
-            ESclient.create({
-                index: index,
-                type: type,
-                id: docId,
-                body: {
-                    title: 'Test 1',
-                    tags: ['y', 'z'],
-                    published: true,
-                    published_at: '2013-01-01',
-                    counter: 1
-                }
-            }, function (error, response) {
-                return callback(error, response);
-            });
-        }
+                }, function (error, response) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(metadata);
+                    }
+                });
+            } else {
+                ESclient.create({
+                    index: index,
+                    type: type,
+                    id: docId,
+                    body: {
+                        title: 'Test 1',
+                        tags: ['y', 'z'],
+                        published: true,
+                        published_at: '2013-01-01',
+                        counter: 1
+                    }
+                }, function (error, response) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(metadata);
+                    }
+                });
+            }
+        });
     });
-}
-
-function processFile(filePath, asyncCallbackDone) {
-    try {
-        // Check if thumb is already present
-        stats = fs.lstatSync(config.thumbnailDir + outFileName);
-
-        if (stats.isFile()) {
-            console.log('Thumbnail for ' + pictureFileName + ' already exists, skipping thumbnail creation');
-        }
-    } catch (e) {
-        console.log('File does not exist yet, making thumbnail');
-
-        var thumbnail = resizeImage(file);
-        thumbnail.write(path.join(__dirname, config.thumbnailDir, outFileName), checkCorrectWrite);
-    }
-
-    var hash = getMetadata(filePath);
-    createOrUpdateDocument(config.elasticsearch.indexName, config.elasticsearch.docType, hash, function done(){
-        asyncCallbackDone();
-    })
-}
-
-function checkCorrectWrite(err) {
-    if (err) {
-        console.log(err);
-        callback(err);
-    } else {
-        console.log('Wrote ' + config.thumbnailDir + outFileName);
-    }
-}
-
-
-function asyncComplete(err) {
-    'use strict';
-    console.log(filelist.length + ' files for processing');
-    fs.appendFileSync(argv.outdir + '/thumbs.js', "var thumbs = " + JSON.stringify(thumbs) + "\n");
-    fs.appendFileSync(argv.outdir + '/index.html', "</html>\n </body>\n");
-
-    if (err) {
-        fs.appendFile(argv.outdir + '/errors.txt', new Date().toLocaleString() + " " + pictureFileName + ": " + err + "\n");
-    }
-}
-function extractBZIP(file){
-    if (file.substr(file.length - 4, file.length) === ".bzip") {
-        var compressedData = fs.readFileSync(file);
-        var data = bunzip.decode(compressedData);
-        var tempFileName = '/tmp/' + file.substr(0, file.length - 4); //get rid of bzip extension
-        fs.writeFileSync(pictureFileName, data);
-        pictureFileName = tempFileName;
-    } else {
-        pictureFileName = String(file);
-    }
 }
