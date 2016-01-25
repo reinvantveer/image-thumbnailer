@@ -40,35 +40,24 @@ describe('image-thumbnailer', function() {
         });
     });
 
-    it('should verify the config picture directory as existing and valid', function shouldValidatePictureDir(){
-        assert.doesNotThrow(function validatePictureDir(){
-            assert.equal(imageThumbnailer.isValidPicturePath(config_for_real.pictureDir), true);
-        });
+    it('should verify the config picture directory as valid',
+        () => assert.equal(imageThumbnailer.isValidPicturePath(config_for_real.pictureDir), true) );
 
-    });
+    it('should be able to instantiate an elasticsearch client object',
+        () => expect(imageThumbnailer.connectToES(testconfig)).to.be.not.null);
 
-    it('should be able to connect to elasticsearch', function shouldConnectToES(done){
-        assert.doesNotThrow(function connect(){
-            imageThumbnailer.connectToES(function(ESclient){
-                expect(ESclient).to.be.not.null;
-                done();
-            });
-        });
-    });
-    it('should be able to create an index', function shouldCreateIndex(done){
-        assert.doesNotThrow(function makeIndex(){
-            imageThumbnailer.createIndex(testconfig.elasticsearch.indexName, function(error){
-                if (error){
-                    console.error('Unable to create index');
-                    throw(error);
-                }
-                done();
-            });
-        });
-    });
+    it('should be able to create a document in the dummy index', () => {
+        var testIndexDoc = {
+            var1 : true,
+            date : Date.now()
+        };
 
-    it('should be able to create a document in the dummy index', function shouldCreateDoc(){
-        return imageThumbnailer.createOrUpdateDocument(testconfig.elasticsearch.indexName, testconfig.elasticsearch.docType, 'my test doc')
+        return imageThumbnailer.createOrUpdateDocument(
+            testconfig.elasticsearch.indexName,
+            testconfig.elasticsearch.docType,
+            'my test doc',
+            testIndexDoc
+        )
             .then(function(metadata){
                 console.log("Metadata:", metadata);
                 return expect(metadata).to.be.not.null;

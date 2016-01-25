@@ -19,10 +19,14 @@
     "path": "^0.12.7",
     "seek-bzip": "^1.0.4"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "babel-cli": "^6.4.5",
+    "babel-preset-es2015": "^6.3.13",
+    "babel-register": "^6.4.3"
+  },
   "scripts": {
     "start": "node index.js",
-    "test": "mocha test/test.js"
+    "test": "mocha --compilers js:babel-register test/test.js"
   },
   "repository": {
     "type": "git",

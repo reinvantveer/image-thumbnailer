@@ -41,58 +41,51 @@ module.exports = {
 };
 
 (function main(){
-    connectToES(function startServer(ESclient){
-        if (!ESclient) {
-            console.error('The connection with the picture indexer could not be made, exiting');
-            throw(error);
-        } else {
-            if (isValidPicturePath(config.pictureDir)) {
-                startService();
-            } else {
-                console.error(config.pictureDir, ' does not look like a valid directory to process. Please specify a different directory of images to process.')
-            }
-        }
+    ESclient = connectToES(config);
 
-        function startService(){
-            var app = express();
-            app.use(express.static('assets'));
+    if (isValidPicturePath(config.pictureDir)) {
+        startService();
+    } else {
+        console.error(config.pictureDir, ' does not look like a valid directory to process. Please specify a different directory of images to process.')
+    }
 
-            app.get('/test', function sendTestRequest(req, res) {
-                res.send('Up and running');
-            });
+    function startService(){
+        var app = express();
+        app.use(express.static('assets'));
 
-            app.get('/picturedir', function sendPictureDirRequest(req, res){
-                res.json({path: path.resolve(config.pictureDir)});
-            });
+        app.get('/test', (req, res) => res.send('Up and running'));
 
-            app.get('/filelist', sendFileListRequest);
+        app.get('/picturedir', function sendPictureDirRequest(req, res){
+            res.json({path: path.resolve(config.pictureDir)});
+        });
 
-            app.get('/process', processDirRequest);
+        app.get('/filelist', sendFileListRequest);
 
-            var server = app.listen(3000, function () {
-                var host = server.address().address;
-                var port = server.address().port;
+        app.get('/process', processDirRequest);
 
-                console.log('Web server and API listening at http://%s:%s', host, port);
-            });
-        }
+        var server = app.listen(3000, function () {
+            var host = server.address().address;
+            var port = server.address().port;
 
-    });
+            console.log('Web server and API listening at http://%s:%s', host, port);
+        });
+    }
+
 })();
 
-function connectToES(callback) {
-    ESclient = new elasticsearch.Client({
-        host: config.elasticsearch.connectParams,
-        log: 'trace'
-    });
+function connectToES(config) {
+        ESclient = new elasticsearch.Client({
+            host: config.elasticsearch.connectParams,
+            log: 'trace'
+        });
 
-    return callback(ESclient);
-
+        return ESclient;
 }
 
 function isValidPicturePath(pictureDir) {
     try {
         var stats = fs.lstatSync(path.resolve(pictureDir));
+        console.log("Is existing directory:", stats.isDirectory());
         return stats.isDirectory() ? true : false;
     } catch (err) {
         console.error('Something went wrong checking for configurated directory', pictureDir, ', please specify a valid directory in the config.json file.');
@@ -160,11 +153,11 @@ function processFile(filePath, thumbnailDir, config) {
             var thumbnailPath = path.join(thumbnailDir, hash + ".jpg");
             console.log("Processing ", filePath, "to", thumbnailPath);
             return fs.statAsync(thumbnailPath)
-                .then(function didResolve(){
+                .then(function skipThumbnailCreation(){
                     console.log('Thumbnail for ' + pictureFileName + ' already exists, skipping thumbnail creation');
                     return getMetadata(filePath, hash, thumbnailPath);
                 })
-                .catch(function didReject(err){
+                .catch(function createThumbnail(err){
                     console.log('File does not exist yet, making thumbnail', thumbnailPath);
                     return resizeImage(filePath)
                         .then(function (thumbnail) {
@@ -277,49 +270,27 @@ function createThumbnailDir(thumbnailDir, callback){
 }
 
 function createOrUpdateDocument(index, type, docId, metadata){
-    return new Promise(function (resolve, reject) {
-        ESclient.exists({
-            index: index,
-            type: type,
-            id: docId
-        }, function docExistsCallback(error, exists) {
-            if (exists === true) {
-                ESclient.update({
+    return ESclient.exists({
+        index: index,
+        type: type,
+        id: docId
+    })
+        .then( (exists) => {
+            console.log("Document with id", docId, "exists:", exists);
+            if (exists) {
+                return ESclient.update({
                     index: index,
                     type: type,
                     id: docId,
-                    body: {
-                        doc: {
-                            title: 'Updated'
-                        }
-                    }
-                }, function (error, response) {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve(metadata);
-                    }
+                    body: metadata
                 });
             } else {
-                ESclient.create({
+                return ESclient.create({
                     index: index,
                     type: type,
                     id: docId,
-                    body: {
-                        title: 'Test 1',
-                        tags: ['y', 'z'],
-                        published: true,
-                        published_at: '2013-01-01',
-                        counter: 1
-                    }
-                }, function (error, response) {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve(metadata);
-                    }
+                    body: metadata
                 });
             }
         });
-    });
 }
