@@ -19,25 +19,25 @@ var
 var Promise = require('bluebird');
 Promise.promisifyAll(fs);
 
-var pictureFileName,
-    outFileName,
-    ESclient;
+var ESclient;
 
 module.exports = {
     connectToES: connectToES,
-    isValidPicturePath : isValidPicturePath,
-    createIndex : createIndex,
-    deleteIndex : deleteIndex,
-    createOrUpdateDocument : createOrUpdateDocument,
-    createThumbnailDir : createThumbnailDir,
-    resizeImage : resizeImage,
-    getMetadata : getMetadata,
-    createHash : createHash,
+    isValidPicturePath: isValidPicturePath,
+    createThumbnailDir: createThumbnailDir,
+    resizeImage: resizeImage,
+    createMetadata: createMetadata,
+    isPicture: isPicture,
+    createHash: createHash,
     getFilenamesFromDir : getFilenamesFromDir,
-    processFileDir : processFileDir,
-    processFile : processFile,
-    isPicture : isPicture,
-    writeFile : writeFile
+    processFileDir: processFileDir,
+    processFile: processFile,
+    createThumbnail: createThumbnail,
+    writeFile: writeFile,
+    createIndex: createIndex,
+    deleteIndex: deleteIndex,
+    createOrUpdateDocument: createOrUpdateDocument,
+    getDocumentById: getDocumentById
 };
 
 (function main(){
@@ -55,9 +55,7 @@ module.exports = {
 
         app.get('/test', (req, res) => res.send('Up and running'));
 
-        app.get('/picturedir', function sendPictureDirRequest(req, res){
-            res.json({path: path.resolve(config.pictureDir)});
-        });
+        app.get('/picturedir', (req, res) => res.json( {path: path.resolve(config.pictureDir)} ));
 
         app.get('/filelist', sendFileListRequest);
 
@@ -67,7 +65,7 @@ module.exports = {
             var host = server.address().address;
             var port = server.address().port;
 
-            console.log('Web server and API listening at http://%s:%s', host, port);
+            console.log('Web server and API listening at http://%s:%s', host, port, "\n");
         });
     }
 
@@ -85,7 +83,7 @@ function connectToES(config) {
 function isValidPicturePath(pictureDir) {
     try {
         var stats = fs.lstatSync(path.resolve(pictureDir));
-        console.log("Is existing directory:", stats.isDirectory());
+        console.log("Is existing directory:", stats.isDirectory(), "\n");
         return stats.isDirectory() ? true : false;
     } catch (err) {
         console.error('Something went wrong checking for configurated directory', pictureDir, ', please specify a valid directory in the config.json file.');
@@ -104,7 +102,7 @@ function sendFileListRequest(req, res){
 }
 
 function getFilenamesFromDir(dirName){
-    console.log("dirName", dirName);
+    console.log("dirName", dirName, "\n");
     var files = [];
 
     file.walkSync(dirName, function(start, dirs, names) {
@@ -123,62 +121,97 @@ function processDirRequest(req, res) {
     if (!req.query.directory) {
         return res.send("Requires query parameter ?directory=[urlencoded dir]");
     } else {
-        return res.json({result: processFileDir(req.query.directory, path.resolve(config.thumbnailDir))});
+        return res.json({result: processFileDir(req.query.directory, path.resolve(config.thumbnailDir), config)});
     }
 }
 
-function processFileDir(pictureDir, thumbnailDir){
-    var fileList = getFilenamesFromDir(pictureDir);
-    var thumbs = [];
+function processFileDir(pictureDir, config){
+    return new Promise((resolve, reject) => {
+        var thumbs = [];
 
-    highland(fileList)
-        .each(function(file){
-            console.log(file);
-            processFile(file, thumbnailDir, function(thumbnailPath){
-                thumbs.push(thumbnailPath);
-            });
+        var fileListStream = highland(getFilenamesFromDir(path.resolve(pictureDir)));
+
+        fileListStream.each(file => {
+            console.log("Processing file", file);
+            highland(processFile(file, config))
+                .each(result => {
+                    console.log("Highland-wrapped processFile result:", result);
+                    thumbs.push(result);
+                })
         })
-        .parallel(10)
-        .done(function(){
-            return thumbs
-        });
+            .done( () => {
+                console.log("Being done here");
+                resolve(thumbs);
+            });
+    });
 }
 
-function processFile(filePath, thumbnailDir, config) {
+function processFile(filePath, config) {
     return isPicture(filePath)
         .then(function(filePath){
-            return createHash(filePath)
+            return createMetadata(filePath, config);
         })
-        .then(function (hash) {
-            var thumbnailPath = path.join(thumbnailDir, hash + ".jpg");
-            console.log("Processing ", filePath, "to", thumbnailPath);
-            return fs.statAsync(thumbnailPath)
+        .then(metadata => {
+            console.log("Processing ", metadata.pictures[0].pictureFileName, "to", metadata.pictures[0].thumbnailFileName);
+
+            return fs.statAsync(metadata.pictures[0].thumbnailFileName)
                 .then(function skipThumbnailCreation(){
-                    console.log('Thumbnail for ' + pictureFileName + ' already exists, skipping thumbnail creation');
-                    return getMetadata(filePath, hash, thumbnailPath);
+                    console.log(
+                        'Thumbnail for',
+                        metadata.pictures[0].pictureFileName,
+                        'already exists, skipping thumbnail creation'
+                    );
+                    return new Promise.resolve(metadata);
                 })
-                .catch(function createThumbnail(err){
-                    console.log('File does not exist yet, making thumbnail', thumbnailPath);
-                    return resizeImage(filePath)
-                        .then(function (thumbnail) {
-                            return writeFile(thumbnail, thumbnailPath);
-                        })
-                        .then(function(filePath, hash, thumbnailPath){
-                            return getMetadata(filePath, hash, thumbnailPath);
-                        })
-                        .catch(function(err){
-                            console.error("processFile encountered error", err.stack);
-                            throw (err);
-                        });
+                .catch(err => {
+                    if (err.code = 'ENOENT') {
+                        console.log("File does not exist yet");
+                    }
+                    else {
+                        return new Promise.reject(err);
+                    }
+
+                    return createThumbnail(metadata);
                 })
         })
         .then(function (metadata) {
             return createOrUpdateDocument(config.elasticsearch.indexName, config.elasticsearch.docType, metadata.id, metadata)
         })
-        .catch(function (err) {
-            console.error("processFile encountered error", err.stack);
-            throw (err);
+        .catch(err => {
+            return new Promise.reject(err);
         })
+}
+
+function isPicture(picturePath) {
+    return new Promise(function (resolve, reject) {
+        gm(picturePath).size( function resolveOrReject(err) {
+            if (err) {
+                reject(err)
+            } else {
+                resolve(picturePath);
+            }
+        });
+    })
+}
+
+function createMetadata(filePath, config) {
+    return fs.statAsync(filePath)
+        .then(function(stats) {
+            return createHash(filePath)
+                .then(hash => {
+                    var metadata = {
+                        id: hash,
+                        pictures: [{
+                            pictureFileName: filePath,
+                            thumbnailFileName: path.join(path.resolve(config.thumbnailDir), hash + ".jpg"),
+                            href: "file://" + filePath,
+                            folders: path.normalize(filePath).split(path.sep).slice(0, -1),
+                            thumbCreateDate: stats.ctime
+                        }]
+                    };
+                    return new Promise.resolve(metadata);
+                });
+        });
 }
 
 function createHash(filePath) {
@@ -197,36 +230,27 @@ function createHash(filePath) {
     });
 }
 
-function isPicture(picturePath) {
-    return new Promise(function (resolve, reject) {
-        gm(picturePath).size( function resolveOrReject(err) {
-            if (err) {
-                reject(err)
-            } else {
-                resolve(picturePath);
-            }
-        });
+function createThumbnail(metadata) {
+    return new Promise((resolve, reject) => {
+        console.log('Making thumbnail', metadata.pictures[0].thumbnailFileName);
+        return resizeImage(metadata.pictures[0].pictureFileName)
+            .then(function (thumbnail) {
+                return writeFile(thumbnail, metadata.pictures[0].thumbnailFileName);
+            })
+            .then(() => {
+                resolve(metadata);
+            })
+            .catch(function (err) {
+                console.error("processFile encountered error", err.stack);
+                reject(err);
+            });
     })
 }
 
-function resizeImage(pictureFileName, metadata){
-    return new Promise( function(resolve, reject){
-        resolve(gm(pictureFileName).resize(config.width, config.height), metadata);
+function resizeImage(pictureFileName){
+    return new Promise( (resolve, reject) => {
+        resolve(gm(pictureFileName).resize(config.width, config.height));
     });
-}
-
-function getMetadata(filePath, hash, thumbnailPath) {
-    return fs.statAsync(filePath)
-        .then(function(stats) {
-            var metadata = {
-                id: hash,
-                thumbnailFileName: thumbnailPath,
-                href: pictureFileName,
-                folders: path.normalize(filePath).split(path.sep),
-                thumbCreateDate: stats.ctime
-            };
-            return new Promise.resolve(metadata);
-        });
 }
 
 function writeFile(thumbnail, thumbnailPath){
@@ -236,7 +260,7 @@ function writeFile(thumbnail, thumbnailPath){
                     console.error("Error on writing thumbnail to ", err);
                     reject(err);
                 } else {
-                    console.log('Wrote ' + config.thumbnailDir + outFileName);
+                    console.log('Wrote ' + thumbnailPath);
                     resolve();
                 }
             });
@@ -270,27 +294,36 @@ function createThumbnailDir(thumbnailDir, callback){
 }
 
 function createOrUpdateDocument(index, type, docId, metadata){
-    return ESclient.exists({
+    return getDocumentById(index, type, docId)
+        .then(response => {
+            console.log("Document with id", docId, "exists:", response);
+/*
+            return ESclient.index({
+                index: index,
+                type: type,
+                id: docId,
+                body: {
+                    pictures: metadata.pictures.push(response._source.pictures[0])
+                }
+            });
+*/
+            return new Promise.resolve(response);
+        })
+        .catch(err => {
+            console.log(err.stack);
+            return ESclient.create({
+                index: index,
+                type: type,
+                id: docId,
+                body: metadata
+            });
+        });
+}
+
+function getDocumentById(index, type, id){
+    return ESclient.get({
         index: index,
         type: type,
-        id: docId
-    })
-        .then( (exists) => {
-            console.log("Document with id", docId, "exists:", exists);
-            if (exists) {
-                return ESclient.update({
-                    index: index,
-                    type: type,
-                    id: docId,
-                    body: metadata
-                });
-            } else {
-                return ESclient.create({
-                    index: index,
-                    type: type,
-                    id: docId,
-                    body: metadata
-                });
-            }
-        });
+        id: id
+    });
 }

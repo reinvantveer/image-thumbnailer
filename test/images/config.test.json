@@ -4,8 +4,8 @@
         "indexName":  "myindex",
         "docType": "mytype"
     },
-    "pictureDir": "images/",
-    "thumbnailDir": "thumbs/",
+    "pictureDir": "test/images/",
+    "thumbnailDir": "test/thumbs/",
     "width": 240,
     "height": 240
 }

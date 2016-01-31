@@ -18,11 +18,18 @@ var gm = require('gm'),
     imageThumbnailer = require('../index.js'),
     fs = require('fs');
 
-var dummyPicturePath = path.join(__dirname, testconfig.pictureDir, 'octobiwan.jpg'),
-    dummyDuplicatePicturePath = path.join(__dirname, testconfig.pictureDir, 'octobiwan2.jpg'),
-    dummyThumbnailPath = path.join(__dirname, testconfig.thumbnailDir, '065ea4640ad9cfb1c2ad8766bf5e9cfc.jpg'),
+var testhash = "dcef3abedf0e0761203aaeb85886a6f3",
+    dummyPicturePath = path.resolve(
+        path.join(testconfig.pictureDir, 'octobiwan.jpg')
+    ),
+    dummyDuplicatePicturePath = path.resolve(
+        path.join(testconfig.pictureDir, 'octobiwan2.jpg')
+    ),
+    dummyThumbnailPath = path.resolve(
+        path.join(testconfig.thumbnailDir, testhash + '.jpg')
+    ),
     noPicturePath = path.join(__dirname, 'README.md'),
-    thumbnailPath = path.join(__dirname, testconfig.thumbnailDir);
+    thumbnailPath = path.resolve(testconfig.thumbnailDir);
 
 var installGMMessage = 'Please install GraphicsMagick and make sure that the console you are using is aware of the binaries directory of GraphicsMagick';
 
@@ -33,6 +40,7 @@ describe('image-thumbnailer', function() {
     it('should verify that graphics magick is properly installed', function(done) {
         assert.doesNotThrow( function() {
             gm(dummyPicturePath).size( function(err, size) {
+                if (err) console.log(installGMMessage);
                 expect(err).to.be.not.null;
                 console.log(size);
                 done();
@@ -138,51 +146,122 @@ describe('image-thumbnailer', function() {
             })
     });
 
-    it('should get the metadata of a picture', function shouldGetMetadata(){
+    it('should get the metadata of a picture', () => {
         var expectedResult = {
             "id": "dcef3abedf0e0761203aaeb85886a6f3"
         };
 
-        return imageThumbnailer.getMetadata(dummyPicturePath, 'dcef3abedf0e0761203aaeb85886a6f3', dummyThumbnailPath)
+        return imageThumbnailer.createMetadata(dummyPicturePath, testconfig)
             .then(function(result){
                 console.log("Metadata:", result);
                 expect(result.id).to.deep.equal(expectedResult.id);
             })
-            .catch(function(err){
-                return expect(err).to.be.null;
-            });
+    });
+
+    it('should write the thumbnail for a single image', () => {
+        if (fs.existsSync(dummyThumbnailPath)) fs.unlinkSync(dummyThumbnailPath);
+
+        return imageThumbnailer.createMetadata(dummyPicturePath, testconfig)
+            .then(metadata => imageThumbnailer.createThumbnail(metadata))
+            .then(metadata => {
+                console.log("Metadata:", metadata);
+                return expect(fs.existsSync(dummyThumbnailPath)).to.equal(true);
+            })
     });
 
     it('should process a single image', function shouldProcessImage(){
-        return expect(imageThumbnailer.processFile(dummyPicturePath, thumbnailPath, testconfig)).to.be.fulfilled;
-/*
+        if (fs.existsSync(dummyThumbnailPath)) fs.unlinkSync(dummyThumbnailPath);
+
+        return imageThumbnailer.processFile(dummyPicturePath, testconfig)
             .then(function handleResult(result){
                 console.log("processFile result:", result);
+                console.log(dummyThumbnailPath, "exist: ", fs.existsSync(path.resolve(dummyThumbnailPath)));
                 return expect(fs.existsSync(dummyThumbnailPath)).to.equal(true);
             })
             .catch(function(err){
                 console.log("Thumbnail store error:", err.stack);
-                return expect(err).to.be.null;
+                throw(err);
             });
-*/
     });
 
-    it('should return the contents of the test folder as a list of files', function shouldGetFiles(done){
-        assert.doesNotThrow(function getFiles(){
-            var fileList = imageThumbnailer.getFilenamesFromDir(path.join(__dirname, testconfig.pictureDir));
-            assert.notEqual(fileList, null);
+    it('should get the metadata document from the index', () => {
+        return imageThumbnailer.createMetadata(dummyPicturePath, testconfig)
+        .then(metadata => imageThumbnailer.getDocumentById(
+            testconfig.elasticsearch.indexName,
+            testconfig.elasticsearch.docType,
+            metadata.id
+        ))
+        .then(response => {
+            console.log(response);
+            return expect(response._source.id).to.equal(testhash);
+        })
 
-            console.log(fileList);
-            done();
-        });
     });
 
-/*
-    it('should process the files in the picture dir', function shouldProcess(){
-        var result = imageThumbnailer.processFileDir(path.join(__dirname, testconfig.pictureDir));
-        assert.notEqual(result, null);
-        console.log(result);
+    it('should reject a single non-picture file', () => {
+        return imageThumbnailer.processFile(noPicturePath, testconfig)
+            .catch(err => {
+                console.log("Expected processFile error:", err);
+                return expect(err).to.be.not.null;
+            });
     });
-*/
+
+    it('should process a single image for which a thumbnail already exists', () => {
+        return imageThumbnailer.processFile(dummyPicturePath, testconfig)
+            .then(function handleResult(result){
+                console.log("processFile result:", result);
+                console.log(dummyThumbnailPath, "exist: ", fs.existsSync(path.resolve(dummyThumbnailPath)));
+                return expect(fs.existsSync(dummyThumbnailPath)).to.equal(true);
+            })
+            .catch(function(err){
+                console.log("Thumbnail store error:", err.stack);
+                throw(err);
+            });
+    });
+
+    it('should process another single image for which a thumbnail already exists', () => {
+        return imageThumbnailer.processFile(dummyPicturePath, testconfig)
+            .then(function handleResult(result){
+                console.log("processFile result:", result);
+                console.log(dummyThumbnailPath, "exist: ", fs.existsSync(path.resolve(dummyThumbnailPath)));
+                return expect(fs.existsSync(dummyThumbnailPath)).to.equal(true);
+            })
+            .catch(function(err){
+                console.log("Thumbnail store error:", err.stack);
+                throw(err);
+            });
+    });
+
+    it('should process another single duplicate image for which a thumbnail already exists', () => {
+        return imageThumbnailer.processFile(dummyDuplicatePicturePath, testconfig)
+            .then(function handleResult(result){
+                console.log("processFile result:", result);
+                console.log(dummyThumbnailPath, "exist: ", fs.existsSync(path.resolve(dummyThumbnailPath)));
+                return expect(fs.existsSync(dummyThumbnailPath)).to.equal(true);
+            })
+            .catch(function(err){
+                console.log("Thumbnail store error:", err.stack);
+                throw(err);
+            });
+    });
+
+    it('should return the contents of the test folder as a list of files', () => {
+        var fileList = imageThumbnailer.getFilenamesFromDir(path.resolve(testconfig.pictureDir));
+        console.log(fileList);
+        return assert.deepEqual(fileList, [ 'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\config.test.json',
+            'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\octobiwan.jpg',
+            'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\octobiwan2.jpg' ]);
+    });
+
+    it('should process the test files in the picture dir', () => {
+        return imageThumbnailer.processFileDir(testconfig.pictureDir, testconfig)
+            .then(result => {
+                console.log("Result", result, "\n");
+                return expect(result).to.equal(true);
+            })
+            .catch(err => {
+                throw err;
+            });
+    });
 
 });
