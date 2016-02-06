@@ -131,19 +131,16 @@ function processFileDir(pictureDir, config) {
   return new Promise((resolve, reject) => {
     var thumbs = [];
 
-    var fileListStream = streamify(getFilenamesFromDir(path.resolve(pictureDir)).push(os.EOL));
-
-    fileListStream.pipe(file => {
-      console.log('Processing file', file);
-      highland(processFile(file, config))
-          .each(result => {
-            console.log('Highland-wrapped processFile result:', result);
-            thumbs.push(result);
-          });
-    })
-        .done(() => {
-          console.log('Being done here');
-          resolve(thumbs);
+    highland(getFilenamesFromDir(path.resolve(pictureDir)))
+        .map(file => {
+          console.log('Processing file', file);
+          return highland(processFile(file, config));
+        })
+        .parallel(10)
+        .toArray(result => {
+          console.log('Highland-wrapped processFile result:', result);
+          thumbs = result;
+          resolve(result);
         });
   });
 }
@@ -179,7 +176,8 @@ function processFile(filePath, config) {
         return createOrUpdateDocument(config.elasticsearch.indexName, config.elasticsearch.docType, metadata.id, metadata);
       })
       .catch(err => {
-        return new Promise.reject(err);
+        console.log(err);
+        return new Promise.resolve(null);
       });
 }
 

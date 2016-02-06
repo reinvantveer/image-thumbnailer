@@ -31,8 +31,8 @@ var thumbnailPath = path.resolve(testconfig.thumbnailDir);
 
 var installGMMessage = 'Please install GraphicsMagick and make sure that the console you are using is aware of the binaries directory of GraphicsMagick';
 
-describe('image-thumbnailer', () => {
-  this.timeout = 20000;
+describe('image-thumbnailer', function () {
+  this.timeout(20000);
 
   it('should verify that graphics magick is properly installed', (done) => {
     assert.doesNotThrow(() => {
@@ -197,11 +197,15 @@ describe('image-thumbnailer', () => {
 
   });
 
-  it('should reject a single non-picture file', () => {
+  it('should resolve a single non-picture file as null value', () => {
     return imageThumbnailer.processFile(noPicturePath, testconfig)
+        .then(result => {
+          console.log('No picture result:', result);
+          return expect(result).to.be.null;
+        })
         .catch(err => {
           console.log('Expected processFile error:', err);
-          return expect(err).to.be.not.null;
+          return expect(err).to.be.null;
         });
   });
 
@@ -258,7 +262,7 @@ describe('image-thumbnailer', () => {
     return imageThumbnailer.processFileDir(testconfig.pictureDir, testconfig)
         .then(result => {
           console.log('Result', result, '\n');
-          return expect(result).to.equal(true);
+          return expect(result.length).to.equal(3);
         })
         .catch(err => {
           throw err;
