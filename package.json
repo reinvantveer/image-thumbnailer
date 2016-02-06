@@ -26,6 +26,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "build": "babel src -d lib",
     "test": "mocha --compilers js:babel-register test/test.js"
   },
   "repository": {
