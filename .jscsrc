@@ -1,4 +1,5 @@
 {
     "preset": "airbnb",
+    "requireTrailingComma": null,
     "maxErrors": 1000
 }

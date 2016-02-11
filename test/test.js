@@ -106,8 +106,8 @@ describe('image-thumbnailer', function () {
           return expect(picturePath).to.be.not.null;
         })
         .catch(err => {
-          return expect(err).to.be.null;
           console.log('Reject on picture file:', err);
+          return expect(err).to.be.null;
         });
   });
 
@@ -254,7 +254,7 @@ describe('image-thumbnailer', function () {
     return assert.deepEqual(fileList, [
       'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\config.test.json',
       'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\octobiwan.jpg',
-      'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\octobiwan2.jpg',
+      'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\octobiwan2.jpg'
     ]);
   });
 

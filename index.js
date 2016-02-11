@@ -5,7 +5,6 @@ var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
 var gm = require('gm');
-var os = require('os');
 var highland = require('highland');
 var elasticsearch = require('elasticsearch');
 var mkdirp = require('mkdirp');
@@ -33,7 +32,7 @@ module.exports = {
   createIndex: createIndex,
   deleteIndex: deleteIndex,
   createOrUpdateDocument: createOrUpdateDocument,
-  getDocumentById: getDocumentById,
+  getDocumentById: getDocumentById
 };
 
 (function main() {
@@ -52,7 +51,7 @@ module.exports = {
     app.get('/test', (req, res) => res.send('Up and running'));
 
     app.get('/picturedir', (req, res) => res.json({
-      path: path.resolve(config.pictureDir),
+      path: path.resolve(config.pictureDir)
     }));
 
     app.get('/filelist', sendFileListRequest);
@@ -72,7 +71,7 @@ module.exports = {
 function connectToES(config) {
   ESclient = new elasticsearch.Client({
     host: config.elasticsearch.connectParams,
-    log: 'trace',
+    log: 'trace'
   });
 
   return ESclient;
@@ -96,7 +95,7 @@ function sendFileListRequest(req, res) {
     return res.send('Requires query parameter ?directory=[urlencoded dir]');
   } else {
     return res.json({
-      path: getFilenamesFromDir(req.query.directory),
+      path: getFilenamesFromDir(req.query.directory)
     });
   }
 }
@@ -122,7 +121,7 @@ function processDirRequest(req, res) {
     return res.send('Requires query parameter ?directory=[urlencoded dir]');
   } else {
     return res.json({
-      result: processFileDir(req.query.directory, path.resolve(config.thumbnailDir), config),
+      result: processFileDir(req.query.directory, path.resolve(config.thumbnailDir), config)
     });
   }
 }
@@ -151,15 +150,11 @@ function processFile(filePath, config) {
         return createMetadata(filePath, config);
       })
       .then(metadata => {
-        console.log('Processing', metadata.pictures[0].pictureFileName, 'to', metadata.pictures[0].thumbnailFileName);
+        console.log(`Processing ${metadata.pictures[0].pictureFileName} to ${metadata.pictures[0].thumbnailFileName}`);
 
         return fs.statAsync(metadata.pictures[0].thumbnailFileName)
             .then(() => {
-              console.log(
-                  'Thumbnail for',
-                  metadata.pictures[0].pictureFileName,
-                  'already exists, skipping thumbnail creation'
-              );
+              console.log(`Thumbnail for ${metadata.pictures[0].pictureFileName} already exists, skipping thumbnail creation`);
               return new Promise.resolve(metadata);
             })
             .catch(err => {
@@ -200,15 +195,13 @@ function createMetadata(filePath, config) {
             .then(hash => {
               var metadata = {
                 id: hash,
-                pictures: [
-                  {
+                pictures: [{
                     pictureFileName: filePath,
                     thumbnailFileName: path.join(path.resolve(config.thumbnailDir), hash + '.jpg'),
                     href: 'file://' + filePath,
                     folders: path.normalize(filePath).split(path.sep).slice(0, -1),
-                    thumbCreateDate: stats.ctime,
-                  },
-                ],
+                    thumbCreateDate: stats.ctime
+                  }]
               };
               return new Promise.resolve(metadata);
             });
@@ -270,7 +263,7 @@ function writeFile(thumbnail, thumbnailPath) {
 
 function createIndex(indexName, callback) {
   ESclient.indices.create({
-    index: indexName,
+    index: indexName
   }, (error, response) => {
     return callback(error, response);
   });
@@ -278,7 +271,7 @@ function createIndex(indexName, callback) {
 
 function deleteIndex(indexName, callback) {
   ESclient.indices.delete({
-    index: indexName,
+    index: indexName
   }, (error, response) => {
     return callback(error, response);
   });
@@ -298,27 +291,44 @@ function createThumbnailDir(thumbnailDir, callback) {
 function createOrUpdateDocument(index, type, docId, metadata) {
   return getDocumentById(index, type, docId)
       .then(response => {
-        console.log('Document with id', docId, 'exists:', response);
-        /*
-         return ESclient.index({
-         index: index,
-         type: type,
-         id: docId,
-         body: {
-         pictures: metadata.pictures.push(response._source.pictures[0])
-         }
-         });
-         */
-        return new Promise.resolve(response);
+        console.log('Document with id', docId, 'already exists:', response);
+
+        response._source.pictures.forEach(picture => {
+          if (picture.pictureFileName === metadata.pictures[0].pictureFileName) {
+            console.log(`File ${picture.pictureFileName} was issued for indexing before, skipping re-index`);
+            return new Promise.resolve();
+          } else {
+
+            var newDoc = {
+              index: index,
+              type: type,
+              id: docId,
+              body: {
+                pictures: response._source.pictures
+              }
+            };
+
+            newDoc.body.pictures.push(metadata.pictures[0]);
+
+            console.log('newDoc:', JSON.stringify(newDoc));
+            return ESclient.index(newDoc);
+          }
+        });
+
       })
       .catch(err => {
-        console.log(err.stack);
-        return ESclient.create({
-          index: index,
-          type: type,
-          id: docId,
-          body: metadata,
-        });
+        if (err.status = 404) {
+          console.log('Creating indexed document, did not exist yet');
+          return ESclient.create({
+            index: index,
+            type: type,
+            id: docId,
+            body: metadata
+          });
+        } else {
+          console.log('Error after ESclient action:', err);
+          return new Promise.reject(err);
+        }
       });
 }
 
@@ -326,6 +336,6 @@ function getDocumentById(index, type, id) {
   return ESclient.get({
     index: index,
     type: type,
-    id: id,
+    id: id
   });
 }
