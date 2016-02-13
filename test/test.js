@@ -1,6 +1,6 @@
 'use strict';
 
-var testconfig = require('./images/config.test.json');
+var testconfig = require('./config.test.json');
 var configForReal = require('../config.json');
 
 var chai = require('chai');
@@ -54,7 +54,7 @@ describe('image-thumbnailer', function () {
   it('should be able to create a document in the dummy index', () => {
     var testIndexDoc = {
       var1: true,
-      date: Date.now(),
+      date: Date.now()
     };
 
     return imageThumbnailer.createOrUpdateDocument(
@@ -62,7 +62,7 @@ describe('image-thumbnailer', function () {
         testconfig.elasticsearch.docType,
         'my test doc',
         testIndexDoc
-        )
+    )
         .then(metadata => {
           console.log('Metadata:', metadata);
           return expect(metadata).to.be.not.null;
@@ -73,17 +73,8 @@ describe('image-thumbnailer', function () {
         });
   });
 
-  it('should be able to delete an index', (done) => {
-    assert.doesNotThrow(() => {
-      imageThumbnailer.deleteIndex(testconfig.elasticsearch.indexName, error => {
-        if (error) {
-          console.error('Unable to create index');
-          throw(error);
-        }
-
-        done();
-      });
-    });
+  it('should be able to delete an index', () => {
+    return expect(imageThumbnailer.deleteIndex(testconfig.elasticsearch.indexName)).to.be.fulfilled;
   });
 
   it('should be able to create a directory for thumbnails to put into', (done) => {
@@ -145,9 +136,47 @@ describe('image-thumbnailer', function () {
         });
   });
 
+  it('should recognize duplicate metadata records', () => {
+    var doc1 = {};
+    doc1.pictures = [];
+    doc1.pictures.push({
+      pictureFileName: 'doc1'
+    });
+
+    var doc2 = {};
+    doc2.pictures = [];
+    doc2.pictures.push({
+      pictureFileName: 'doc1'
+    });
+
+    var identical = imageThumbnailer.isDuplicateMetadata(doc1, doc2);
+    console.log(`Duplicate: ${identical}`);
+    return expect(identical).to.be.true;
+
+  });
+
+  it('should recognize non-duplicate metadata records', () => {
+    var doc1 = {};
+    doc1.pictures = [];
+    doc1.pictures.push({
+      pictureFileName: 'doc1'
+    });
+
+    var doc2 = {};
+    doc2.pictures = [];
+    doc2.pictures.push({
+      pictureFileName: 'doc2'
+    });
+
+    var identical = imageThumbnailer.isDuplicateMetadata(doc1, doc2);
+    console.log(`Duplicate: ${identical}`);
+    expect(identical).to.be.false;
+
+  });
+
   it('should get the metadata of a picture', () => {
     var expectedResult = {
-      id: 'dcef3abedf0e0761203aaeb85886a6f3',
+      id: 'dcef3abedf0e0761203aaeb85886a6f3'
     };
 
     return imageThumbnailer.createMetadata(dummyPicturePath, testconfig)
@@ -168,14 +197,14 @@ describe('image-thumbnailer', function () {
         });
   });
 
-  it('should process a single image', () => {
+  it('should process a single image and return its metadata', () => {
     if (fs.existsSync(dummyThumbnailPath)) fs.unlinkSync(dummyThumbnailPath);
 
     return imageThumbnailer.processFile(dummyPicturePath, testconfig)
         .then(result => {
-          console.log('processFile result:', result);
           console.log(dummyThumbnailPath, 'exist: ', fs.existsSync(path.resolve(dummyThumbnailPath)));
-          return expect(fs.existsSync(dummyThumbnailPath)).to.equal(true);
+          console.log('processFile result:', result);
+          return expect(result.id).to.equal('dcef3abedf0e0761203aaeb85886a6f3');
         })
         .catch(err => {
           console.log('Thumbnail store error:', err.stack);
@@ -192,7 +221,7 @@ describe('image-thumbnailer', function () {
         ))
         .then(response => {
           console.log(response);
-          return expect(response._source.id).to.equal(testhash);
+          return expect(response.id).to.equal(testhash);
         });
 
   });
@@ -222,7 +251,7 @@ describe('image-thumbnailer', function () {
         });
   });
 
-  it('should process another single image for which a thumbnail already exists', () => {
+  it('should process the same single image for which a thumbnail already exists', () => {
     return imageThumbnailer.processFile(dummyPicturePath, testconfig)
         .then(result => {
           console.log('processFile result:', result);
@@ -252,21 +281,30 @@ describe('image-thumbnailer', function () {
     var fileList = imageThumbnailer.getFilenamesFromDir(path.resolve(testconfig.pictureDir));
     console.log(fileList);
     return assert.deepEqual(fileList, [
-      'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\config.test.json',
       'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\octobiwan.jpg',
-      'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\octobiwan2.jpg'
+      'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\octobiwan2.jpg',
+      'C:\\Users\\Rein\\Documents\\Git\\image-thumbnailer\\test\\images\\README.md'
     ]);
   });
 
   it('should process the test files in the picture dir', () => {
-    return imageThumbnailer.processFileDir(testconfig.pictureDir, testconfig)
-        .then(result => {
-          console.log('Result', result, '\n');
-          return expect(result.length).to.equal(3);
-        })
-        .catch(err => {
-          throw err;
-        });
+    return imageThumbnailer.deleteIndex(testconfig.elasticsearch.indexName)
+      .then(() => imageThumbnailer.processFileDir(testconfig.pictureDir, testconfig))
+      .then(result => {
+        console.log('Result: ', JSON.stringify(result, null, 2), '\n');
+
+        //Since the results come in asynchronously, there is no telling which result comes in first
+        //So we take the one with 2 pictures. It should be there.
+        var longDoc = result.filter(doc => doc ? doc.pictures.length == 2 : false);
+        return expect(longDoc[0].pictures.length).to.equal(2);
+      })
+      .catch(err => {
+        throw err;
+      });
+  });
+
+  it('should send a stream of metadata from the process endpoint on files processed', () => {
+    return expect(false).to.be.true;
   });
 
 });

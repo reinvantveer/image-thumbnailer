@@ -29,9 +29,9 @@ module.exports = {
   processFile: processFile,
   createThumbnail: createThumbnail,
   writeFile: writeFile,
-  createIndex: createIndex,
   deleteIndex: deleteIndex,
   createOrUpdateDocument: createOrUpdateDocument,
+  isDuplicateMetadata: isDuplicateMetadata,
   getDocumentById: getDocumentById
 };
 
@@ -71,7 +71,7 @@ module.exports = {
 function connectToES(config) {
   ESclient = new elasticsearch.Client({
     host: config.elasticsearch.connectParams,
-    log: 'trace'
+    log: 'error'
   });
 
   return ESclient;
@@ -146,9 +146,7 @@ function processFileDir(pictureDir, config) {
 
 function processFile(filePath, config) {
   return isPicture(filePath)
-      .then(filePath => {
-        return createMetadata(filePath, config);
-      })
+      .then(filePath => createMetadata(filePath, config))
       .then(metadata => {
         console.log(`Processing ${metadata.pictures[0].pictureFileName} to ${metadata.pictures[0].thumbnailFileName}`);
 
@@ -167,9 +165,7 @@ function processFile(filePath, config) {
               return createThumbnail(metadata);
             });
       })
-      .then(function (metadata) {
-        return createOrUpdateDocument(config.elasticsearch.indexName, config.elasticsearch.docType, metadata.id, metadata);
-      })
+      .then((metadata) => createOrUpdateDocument(config.elasticsearch.indexName, config.elasticsearch.docType, metadata.id, metadata))
       .catch(err => {
         console.log(err);
         return new Promise.resolve(null);
@@ -261,19 +257,9 @@ function writeFile(thumbnail, thumbnailPath) {
   });
 }
 
-function createIndex(indexName, callback) {
-  ESclient.indices.create({
+function deleteIndex(indexName) {
+  return ESclient.indices.delete({
     index: indexName
-  }, (error, response) => {
-    return callback(error, response);
-  });
-}
-
-function deleteIndex(indexName, callback) {
-  ESclient.indices.delete({
-    index: indexName
-  }, (error, response) => {
-    return callback(error, response);
   });
 }
 
@@ -290,30 +276,32 @@ function createThumbnailDir(thumbnailDir, callback) {
 
 function createOrUpdateDocument(index, type, docId, metadata) {
   return getDocumentById(index, type, docId)
-      .then(response => {
-        console.log('Document with id', docId, 'already exists:', response);
+      .then(indexedMetadata => {
+        console.log('Document with id', docId, 'already exists:', JSON.stringify(indexedMetadata));
 
-        response._source.pictures.forEach(picture => {
-          if (picture.pictureFileName === metadata.pictures[0].pictureFileName) {
-            console.log(`File ${picture.pictureFileName} was issued for indexing before, skipping re-index`);
-            return new Promise.resolve();
-          } else {
+        if (isDuplicateMetadata(indexedMetadata, metadata)) {
+          console.log(`File ${metadata.pictures[0].pictureFileName} has been indexed before, skipping indexing`);
+          return new Promise.resolve(indexedMetadata);
+        }
 
-            var newDoc = {
-              index: index,
-              type: type,
-              id: docId,
-              body: {
-                pictures: response._source.pictures
-              }
-            };
-
-            newDoc.body.pictures.push(metadata.pictures[0]);
-
-            console.log('newDoc:', JSON.stringify(newDoc));
-            return ESclient.index(newDoc);
+        var newDoc = {
+          index: index,
+          type: type,
+          id: docId,
+          body: {
+            pictures: indexedMetadata.pictures
           }
-        });
+        };
+
+        newDoc.body.pictures.push(metadata.pictures[0]);
+
+        console.log('newDoc:', JSON.stringify(newDoc));
+
+        return ESclient.index(newDoc)
+          .then(() => {
+            console.log(`Indexed ${newDoc}`);
+            return getDocumentById(index, type, newDoc.id);
+          });
 
       })
       .catch(err => {
@@ -324,12 +312,27 @@ function createOrUpdateDocument(index, type, docId, metadata) {
             type: type,
             id: docId,
             body: metadata
-          });
-        } else {
-          console.log('Error after ESclient action:', err);
-          return new Promise.reject(err);
+          })
+            .then(() => getDocumentById(index, type, docId))
+            .catch(err => {
+              if (err.status = 409) {
+                //This is basically a fallback to catch race conditions on documents being indexed simultaneously
+                console.log(`Document already exists, re-issuing index command`);
+                return createOrUpdateDocument(index, type, docId, metadata);
+              }
+            });
         }
+
+        console.log('Error after ESclient action:', err);
+        return new Promise.reject(err);
+
       });
+}
+
+function isDuplicateMetadata(indexedDoc, metadata) {
+  var duplicates = indexedDoc.pictures.filter(picture => picture.pictureFileName === metadata.pictures[0].pictureFileName);
+  console.log(`Duplicate for ${metadata.id}: ${duplicates.length}`);
+  return duplicates.length > 0;
 }
 
 function getDocumentById(index, type, id) {
@@ -337,5 +340,9 @@ function getDocumentById(index, type, id) {
     index: index,
     type: type,
     id: id
-  });
+  }).then(
+    response => new Promise.resolve({
+      id: id,
+      pictures: response._source.pictures
+    }));
 }
